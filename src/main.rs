@@ -12,6 +12,7 @@ use std::{
     error::Error,
     fmt::Display,
     io::{self, Write},
+    process::Command,
     sync::{Arc, Mutex},
     time::Duration,
     vec,
@@ -91,10 +92,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(async move {
         rx.for_each(|msg| async {
             if let Ok(Message::Text(msg)) = msg {
-                messages
-                    .lock()
-                    .unwrap()
-                    .push(serde_json::from_str::<EludrisMessage>(&msg).unwrap());
+                let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
+                Command::new("notify-send")
+                    .arg(format!("New Eludris Message:\n{}", msg.to_string()))
+                    .spawn()
+                    .unwrap();
+                messages.lock().unwrap().push(msg);
             }
         })
         .await;
