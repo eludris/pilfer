@@ -94,6 +94,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             if let Ok(Message::Text(msg)) = msg {
                 let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
                 Command::new("notify-send")
+                    .arg("-r")
+                    .arg("3903492")
                     .arg("New Eludris Message")
                     .arg(msg.to_string())
                     .spawn()
