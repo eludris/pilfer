@@ -22,8 +22,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
-    text::{Span, Spans},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthStr;
@@ -135,7 +134,7 @@ fn run_app<B: Backend>(
                 match key.code {
                     KeyCode::Enter => {
                         let request = app.http_client
-                        .post(&app.rest_url)
+                        .post(format!("{}/messages/", app.rest_url))
                         .json(
                             &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
                         );
@@ -169,22 +168,22 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
         .split(f.size());
 
-    let messages: Vec<ListItem> = {
+    let messages: String = {
         app.messages
             .lock()
             .unwrap()
             .iter()
             .rev()
-            .map(|m| {
-                let content = vec![Spans::from(Span::raw(m.to_string()))];
-                ListItem::new(content)
-            })
-            .collect()
+            .take((chunks[0].height - 2) as usize)
+            .rev()
+            .map(|m| m.to_string())
+            .collect::<Vec<String>>()
+            .join("\n")
     };
 
-    let messages = List::new(messages)
-        .block(Block::default().borders(Borders::ALL).title("Messages"))
-        .start_corner(tui::layout::Corner::BottomLeft);
+    let messages = Paragraph::new(messages)
+        .wrap(Wrap { trim: false })
+        .block(Block::default().borders(Borders::ALL).title("Messages"));
     f.render_widget(messages, chunks[0]);
 
     let input = Paragraph::new(app.input.as_ref())
