@@ -186,8 +186,18 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .block(Block::default().borders(Borders::ALL).title("Messages"));
     f.render_widget(messages, chunks[0]);
 
-    let input = Paragraph::new(app.input.as_ref())
-        .block(Block::default().borders(Borders::ALL).title("Input"));
+    let input: String = app
+        .input
+        .chars()
+        .rev()
+        .take((chunks[1].width - 2) as usize)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+
+    let input =
+        Paragraph::new(input.as_ref()).block(Block::default().borders(Borders::ALL).title("Input"));
     f.render_widget(input, chunks[1]);
     f.set_cursor(chunks[1].x + app.input.width() as u16 + 1, chunks[1].y + 1);
 }
