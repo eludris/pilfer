@@ -162,18 +162,27 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
         .split(f.size());
 
-    let messages: String = {
-        app.messages
-            .lock()
-            .unwrap()
-            .iter()
-            .rev()
-            .take((chunks[0].height - 2) as usize)
-            .rev()
-            .map(|m| m.to_string())
-            .collect::<Vec<String>>()
-            .join("\n")
-    };
+    let messages: String = app
+        .messages
+        .lock()
+        .unwrap()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<String>>()
+        .join("\n");
+
+    let messages: Vec<String> = messages
+        .lines()
+        .rev()
+        .take((chunks[0].height - 2) as usize)
+        .map(ToString::to_string)
+        .collect();
+
+    let messages: String = messages
+        .into_iter()
+        .rev()
+        .collect::<Vec<String>>()
+        .join("\n");
 
     let messages = Paragraph::new(messages)
         .wrap(Wrap { trim: false })
@@ -185,10 +194,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .chars()
         .rev()
         .take((chunks[1].width - 2) as usize)
-        .collect::<String>()
-        .chars()
-        .rev()
         .collect();
+    let input: String = input.chars().rev().collect();
 
     let input =
         Paragraph::new(input.as_ref()).block(Block::default().borders(Borders::ALL).title("Input"));
