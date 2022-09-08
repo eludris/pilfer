@@ -1,5 +1,5 @@
 use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyModifiers},
+    event::{self, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     io::stdin().read_line(&mut name).unwrap();
 
     enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
+    execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -72,10 +72,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         name: name.trim().to_string(),
         messages: Arc::clone(&messages),
         http_client: Client::new(),
-        rest_url: env::var("REST_URL").unwrap_or(REST_URL.to_string()),
+        rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
     };
 
-    let gateway_url = env::var("GATEWAY_URL").unwrap_or(GATEWAY_URL.to_string());
+    let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
 
     let (socket, _) = connect_async(gateway_url).await.unwrap();
 
@@ -108,11 +108,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let res = run_app(&mut terminal, app);
 
     disable_raw_mode()?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
@@ -144,6 +140,7 @@ fn run_app<B: Backend>(
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             match c {
                                 'c' => break,
+                                'l' => app.messages.lock().unwrap().clear(),
                                 _ => {}
                             }
                         } else {
