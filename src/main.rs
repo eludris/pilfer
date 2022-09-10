@@ -174,6 +174,27 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .collect::<Vec<String>>()
         .join("\n");
 
+    let messages = messages
+        .lines()
+        .map(|m| {
+            m.chars()
+                .enumerate()
+                .map(|(i, x)| {
+                    format!(
+                        "{}{}",
+                        x,
+                        if (i + 1) % (chunks[0].width - 2) as usize == 0 {
+                            "\n"
+                        } else {
+                            ""
+                        }
+                    )
+                })
+                .collect::<String>()
+        })
+        .collect::<Vec<String>>()
+        .join("\n");
+
     let messages: Vec<String> = messages
         .lines()
         .rev()
@@ -188,7 +209,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .join("\n");
 
     let messages = Paragraph::new(messages)
-        .wrap(Wrap { trim: false })
+        // .wrap(Wrap { trim: false })
         .block(Block::default().borders(Borders::ALL).title("Messages"));
     f.render_widget(messages, chunks[0]);
 
