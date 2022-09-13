@@ -1,5 +1,5 @@
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, DisableFocusChange, EnableFocusChange, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -13,7 +13,10 @@ use std::{
     fmt::Display,
     io::{self, Write},
     process::Command,
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
     time::Duration,
     vec,
 };
@@ -22,7 +25,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthStr;
@@ -48,6 +51,7 @@ struct AppContext {
     messages: Arc<Mutex<Vec<EludrisMessage>>>,
     http_client: Client,
     rest_url: String,
+    focused: Arc<AtomicBool>,
 }
 
 #[tokio::main]
@@ -61,11 +65,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     io::stdin().read_line(&mut name).unwrap();
 
     enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableFocusChange)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let messages = Arc::new(Mutex::new(vec![]));
+    let focused = Arc::new(AtomicBool::new(true));
 
     let app = AppContext {
         input: String::new(),
@@ -73,6 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
+        focused: Arc::clone(&focused),
     };
 
     let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
@@ -92,13 +98,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rx.for_each(|msg| async {
             if let Ok(Message::Text(msg)) = msg {
                 let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
-                Command::new("notify-send")
-                    .arg("-r")
-                    .arg("3903492")
-                    .arg("New Eludris Message")
-                    .arg(msg.to_string())
-                    .spawn()
-                    .unwrap();
+                if !focused.load(std::sync::atomic::Ordering::Relaxed) {
+                    Command::new("notify-send")
+                        .arg("-r")
+                        .arg("3903492")
+                        .arg("New Eludris Message")
+                        .arg(msg.to_string())
+                        .spawn()
+                        .unwrap();
+                }
                 messages.lock().unwrap().push(msg);
             }
         })
@@ -108,7 +116,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let res = run_app(&mut terminal, app);
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableFocusChange
+    )?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
@@ -126,8 +138,22 @@ fn run_app<B: Backend>(
         terminal.draw(|f| ui(f, &app))?;
 
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
+            let event = event::read()?;
+            match event {
+                Event::FocusGained => {
+                    app.focused.store(true, Ordering::Relaxed);
+                    Command::new("notify-send")
+                        .arg("-r")
+                        .arg("3903492")
+                        .arg("clear")
+                        .arg("-t")
+                        .arg("1")
+                        .spawn()
+                        .unwrap();
+                }
+
+                Event::FocusLost => app.focused.store(false, Ordering::Relaxed),
+                Event::Key(key) => match key.code {
                     KeyCode::Enter => {
                         let request = app.http_client
                         .post(format!("{}/messages/", app.rest_url))
@@ -151,7 +177,8 @@ fn run_app<B: Backend>(
                         app.input.pop();
                     }
                     _ => {}
-                }
+                },
+                _ => {}
             }
         }
     }
