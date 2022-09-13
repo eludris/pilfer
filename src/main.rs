@@ -21,7 +21,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, Paragraph, Wrap},
+    widgets::{Block, Borders, Paragraph},
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthStr;
@@ -123,12 +123,15 @@ fn run_app<B: Backend>(
             if let Event::Key(key) = event::read()? {
                 match key.code {
                     KeyCode::Enter => {
-                        let request = app.http_client
-                        .post(format!("{}/messages/", app.rest_url))
-                        .json(
-                            &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
-                        );
-                        tokio::spawn(async { request.send().await.unwrap() });
+                        if !app.input.is_empty() {
+                            let request = app
+                                .http_client
+                                .post(format!("{}/messages/", app.rest_url))
+                                .json(
+                                    &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
+                                );
+                            tokio::spawn(async { request.send().await.unwrap() });
+                        }
                     }
                     KeyCode::Char(c) => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
