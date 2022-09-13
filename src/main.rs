@@ -155,12 +155,15 @@ fn run_app<B: Backend>(
                 Event::FocusLost => app.focused.store(false, Ordering::Relaxed),
                 Event::Key(key) => match key.code {
                     KeyCode::Enter => {
-                        let request = app.http_client
-                        .post(format!("{}/messages/", app.rest_url))
-                        .json(
-                            &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
-                        );
-                        tokio::spawn(async { request.send().await.unwrap() });
+                        if !app.input.is_empty() {
+                            let request = app
+                                .http_client
+                                .post(format!("{}/messages/", app.rest_url))
+                                .json(
+                                    &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
+                                );
+                            tokio::spawn(async { request.send().await.unwrap() });
+                        }
                     }
                     KeyCode::Char(c) => {
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
