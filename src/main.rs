@@ -58,7 +58,7 @@ struct AppContext {
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout();
 
-    let name = loop {
+    let name = env::var("PILFER_NAME").unwrap_or_else(|_| loop {
         print!("What's your name? > ");
         stdout.flush().unwrap();
 
@@ -73,7 +73,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
 
         println!("Your name has to be between 2 and 32 characters long, try again!");
-    };
+    });
 
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen, EnableFocusChange)?;
