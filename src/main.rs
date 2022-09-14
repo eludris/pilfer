@@ -51,13 +51,24 @@ struct AppContext {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    print!("What's your name? > ");
     let mut stdout = io::stdout();
-    stdout.flush().unwrap();
 
-    let mut name = String::new();
+    let name = loop {
+        print!("What's your name? > ");
+        stdout.flush().unwrap();
 
-    io::stdin().read_line(&mut name).unwrap();
+        let mut name = String::new();
+
+        io::stdin().read_line(&mut name).unwrap();
+
+        let name = name.trim();
+
+        if name.len() <= 32 && name.len() >= 2 {
+            break name.to_string();
+        }
+
+        println!("Your name has to be between 2 and 32 characters long, try again!");
+    };
 
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen)?;
@@ -68,7 +79,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let app = AppContext {
         input: String::new(),
-        name: name.trim().to_string(),
+        name,
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
