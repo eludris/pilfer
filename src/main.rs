@@ -4,17 +4,16 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use futures::{SinkExt, StreamExt};
+use notify_rust::{Notification, NotificationHandle};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-#[cfg(unix)]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     env,
     error::Error,
     fmt::Display,
     io::{self, Write},
-    process::Command,
     sync::{Arc, Mutex},
     time::Duration,
     vec,
@@ -50,8 +49,8 @@ struct AppContext {
     messages: Arc<Mutex<Vec<EludrisMessage>>>,
     http_client: Client,
     rest_url: String,
-    #[cfg(unix)]
     focused: Arc<AtomicBool>,
+    notification: Arc<Mutex<Option<NotificationHandle>>>,
 }
 
 #[tokio::main]
@@ -81,8 +80,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let messages = Arc::new(Mutex::new(vec![]));
-    #[cfg(unix)]
     let focused = Arc::new(AtomicBool::new(true));
+    let notification = Arc::new(Mutex::new(None));
 
     let app = AppContext {
         input: String::new(),
@@ -90,8 +89,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
-        #[cfg(unix)]
         focused: Arc::clone(&focused),
+        notification: Arc::clone(&notification),
     };
 
     let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
@@ -111,16 +110,26 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rx.for_each(|msg| async {
             if let Ok(Message::Text(msg)) = msg {
                 let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
-                #[cfg(unix)]
                 if !focused.load(std::sync::atomic::Ordering::Relaxed) {
-                    Command::new("notify-send")
-                        .arg("-r")
-                        .arg("3903492")
-                        .arg("New Eludris Message")
-                        .arg(msg.to_string())
-                        .spawn()
-                        .unwrap();
+                    let mut notif = notification.lock().unwrap();
+                    match notif.as_mut() {
+                        Some(notif) => {
+                            notif.body(&msg.to_string());
+                            notif.update()
+                        }
+                        None => {
+                            *notif = match Notification::new()
+                                .summary("New Pilfer Message")
+                                .body(&msg.to_string())
+                                .show()
+                            {
+                                Ok(notif) => Some(notif),
+                                Err(_) => None,
+                            };
+                        }
+                    }
                 }
+
                 messages.lock().unwrap().push(msg);
             }
         })
@@ -154,19 +163,12 @@ fn run_app<B: Backend>(
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
             match event {
-                #[cfg(unix)]
                 Event::FocusGained => {
                     app.focused.store(true, Ordering::Relaxed);
-                    Command::new("notify-send")
-                        .arg("-r")
-                        .arg("3903492")
-                        .arg("clear")
-                        .arg("-t")
-                        .arg("1")
-                        .spawn()
-                        .unwrap();
+                    if let Some(notif) = app.notification.lock().unwrap().take() {
+                        notif.close();
+                    }
                 }
-                #[cfg(unix)]
                 Event::FocusLost => app.focused.store(false, Ordering::Relaxed),
                 Event::Key(key) => match key.code {
                     KeyCode::Enter => {
