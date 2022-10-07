@@ -181,6 +181,7 @@ fn run_app<B: Backend>(
                             match c {
                                 'c' => break,
                                 'l' => app.messages.lock().unwrap().clear(),
+                                ' ' => app.input.push('\n'),
                                 _ => {}
                             }
                         } else {
@@ -254,16 +255,19 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .block(Block::default().borders(Borders::ALL).title("Messages"));
     f.render_widget(messages, chunks[0]);
 
-    let input: String = app
+    let input_text: String = app
         .input
+        .split('\n')
+        .last()
+        .unwrap_or("")
         .chars()
         .rev()
         .take((chunks[1].width - 2) as usize)
         .collect();
-    let input: String = input.chars().rev().collect();
+    let input_text: String = input_text.chars().rev().collect();
 
-    let input =
-        Paragraph::new(input.as_ref()).block(Block::default().borders(Borders::ALL).title("Input"));
+    let input = Paragraph::new(input_text.as_ref())
+        .block(Block::default().borders(Borders::ALL).title("Input"));
     f.render_widget(input, chunks[1]);
-    f.set_cursor(chunks[1].x + app.input.width() as u16 + 1, chunks[1].y + 1);
+    f.set_cursor(chunks[1].x + input_text.width() as u16 + 1, chunks[1].y + 1);
 }
