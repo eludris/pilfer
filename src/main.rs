@@ -7,16 +7,15 @@ use futures::{SinkExt, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     env,
     error::Error,
     fmt::Display,
     io::{self, Write},
     process::Command,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
     time::Duration,
     vec,
 };
@@ -51,6 +50,7 @@ struct AppContext {
     messages: Arc<Mutex<Vec<EludrisMessage>>>,
     http_client: Client,
     rest_url: String,
+    #[cfg(unix)]
     focused: Arc<AtomicBool>,
 }
 
@@ -81,6 +81,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let messages = Arc::new(Mutex::new(vec![]));
+    #[cfg(unix)]
     let focused = Arc::new(AtomicBool::new(true));
 
     let app = AppContext {
@@ -89,6 +90,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
+        #[cfg(unix)]
         focused: Arc::clone(&focused),
     };
 
@@ -109,6 +111,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         rx.for_each(|msg| async {
             if let Ok(Message::Text(msg)) = msg {
                 let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
+                #[cfg(unix)]
                 if !focused.load(std::sync::atomic::Ordering::Relaxed) {
                     Command::new("notify-send")
                         .arg("-r")
@@ -151,6 +154,7 @@ fn run_app<B: Backend>(
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
             match event {
+                #[cfg(unix)]
                 Event::FocusGained => {
                     app.focused.store(true, Ordering::Relaxed);
                     Command::new("notify-send")
@@ -162,7 +166,7 @@ fn run_app<B: Backend>(
                         .spawn()
                         .unwrap();
                 }
-
+                #[cfg(unix)]
                 Event::FocusLost => app.focused.store(false, Ordering::Relaxed),
                 Event::Key(key) => match key.code {
                     KeyCode::Enter => {
