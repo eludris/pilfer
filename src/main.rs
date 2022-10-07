@@ -1,5 +1,5 @@
 use crossterm::{
-    event::{self, Event, KeyCode, KeyModifiers},
+    event::{self, DisableFocusChange, EnableFocusChange, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -7,11 +7,14 @@ use futures::{SinkExt, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+#[cfg(unix)]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     env,
     error::Error,
     fmt::Display,
     io::{self, Write},
+    process::Command,
     sync::{Arc, Mutex},
     time::Duration,
     vec,
@@ -47,6 +50,8 @@ struct AppContext {
     messages: Arc<Mutex<Vec<EludrisMessage>>>,
     http_client: Client,
     rest_url: String,
+    #[cfg(unix)]
+    focused: Arc<AtomicBool>,
 }
 
 #[tokio::main]
@@ -71,11 +76,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
 
     enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableFocusChange)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
     let messages = Arc::new(Mutex::new(vec![]));
+    #[cfg(unix)]
+    let focused = Arc::new(AtomicBool::new(true));
 
     let app = AppContext {
         input: String::new(),
@@ -83,6 +90,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
+        #[cfg(unix)]
+        focused: Arc::clone(&focused),
     };
 
     let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
@@ -101,10 +110,18 @@ async fn main() -> Result<(), Box<dyn Error>> {
     tokio::spawn(async move {
         rx.for_each(|msg| async {
             if let Ok(Message::Text(msg)) = msg {
-                messages
-                    .lock()
-                    .unwrap()
-                    .push(serde_json::from_str::<EludrisMessage>(&msg).unwrap());
+                let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
+                #[cfg(unix)]
+                if !focused.load(std::sync::atomic::Ordering::Relaxed) {
+                    Command::new("notify-send")
+                        .arg("-r")
+                        .arg("3903492")
+                        .arg("New Eludris Message")
+                        .arg(msg.to_string())
+                        .spawn()
+                        .unwrap();
+                }
+                messages.lock().unwrap().push(msg);
             }
         })
         .await;
@@ -113,7 +130,11 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let res = run_app(&mut terminal, app);
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen,)?;
+    execute!(
+        terminal.backend_mut(),
+        LeaveAlternateScreen,
+        DisableFocusChange
+    )?;
     terminal.show_cursor()?;
 
     if let Err(err) = res {
@@ -131,8 +152,23 @@ fn run_app<B: Backend>(
         terminal.draw(|f| ui(f, &app))?;
 
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
+            let event = event::read()?;
+            match event {
+                #[cfg(unix)]
+                Event::FocusGained => {
+                    app.focused.store(true, Ordering::Relaxed);
+                    Command::new("notify-send")
+                        .arg("-r")
+                        .arg("3903492")
+                        .arg("clear")
+                        .arg("-t")
+                        .arg("1")
+                        .spawn()
+                        .unwrap();
+                }
+                #[cfg(unix)]
+                Event::FocusLost => app.focused.store(false, Ordering::Relaxed),
+                Event::Key(key) => match key.code {
                     KeyCode::Enter => {
                         if !app.input.is_empty() {
                             let request = app
@@ -149,6 +185,7 @@ fn run_app<B: Backend>(
                             match c {
                                 'c' => break,
                                 'l' => app.messages.lock().unwrap().clear(),
+                                ' ' => app.input.push('\n'),
                                 _ => {}
                             }
                         } else {
@@ -159,7 +196,8 @@ fn run_app<B: Backend>(
                         app.input.pop();
                     }
                     _ => {}
-                }
+                },
+                _ => {}
             }
         }
     }
@@ -221,16 +259,19 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .block(Block::default().borders(Borders::ALL).title("Messages"));
     f.render_widget(messages, chunks[0]);
 
-    let input: String = app
+    let input_text: String = app
         .input
+        .split('\n')
+        .last()
+        .unwrap_or("")
         .chars()
         .rev()
         .take((chunks[1].width - 2) as usize)
         .collect();
-    let input: String = input.chars().rev().collect();
+    let input_text: String = input_text.chars().rev().collect();
 
-    let input =
-        Paragraph::new(input.as_ref()).block(Block::default().borders(Borders::ALL).title("Input"));
+    let input = Paragraph::new(input_text.as_ref())
+        .block(Block::default().borders(Borders::ALL).title("Input"));
     f.render_widget(input, chunks[1]);
-    f.set_cursor(chunks[1].x + app.input.width() as u16 + 1, chunks[1].y + 1);
+    f.set_cursor(chunks[1].x + input_text.width() as u16 + 1, chunks[1].y + 1);
 }
