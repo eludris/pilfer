@@ -24,8 +24,9 @@ use tokio::time;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout},
-    widgets::{Block, Borders, Paragraph},
+    layout::{Constraint, Corner, Direction, Layout},
+    style::{Color, Style},
+    widgets::{Block, Borders, List, ListItem, Paragraph},
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthStr;
@@ -36,9 +37,29 @@ struct EludrisMessage {
     content: String,
 }
 
+#[derive(Debug)]
+struct SystemMessage {
+    content: String,
+}
+
+#[derive(Debug)]
+enum PilferMessage {
+    Eludris(EludrisMessage),
+    System(SystemMessage),
+}
+
 impl Display for EludrisMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&format!("[{}]: {}", self.author, self.content))
+    }
+}
+
+impl Display for PilferMessage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PilferMessage::Eludris(msg) => write!(f, "{}", msg),
+            PilferMessage::System(msg) => write!(f, "{}", msg.content),
+        }
     }
 }
 
@@ -51,7 +72,7 @@ struct AppContext {
     /// User name
     name: String,
     /// Received messages
-    messages: Arc<Mutex<Vec<EludrisMessage>>>,
+    messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
     /// Reqwest HTTPClient
     http_client: Client,
     /// Oprish URL
@@ -98,7 +119,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let app = AppContext {
         input: String::new(),
-        name,
+        name: name.clone(),
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
@@ -155,7 +176,15 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         .ok();
                 }
                 // Add to the Pifler's context
-                messages.lock().unwrap().push(msg);
+                let style = if msg.content.to_lowercase().contains(&name.to_lowercase()) {
+                    Style::default().fg(Color::Black).bg(Color::White)
+                } else {
+                    Style::default()
+                };
+                messages
+                    .lock()
+                    .unwrap()
+                    .push((PilferMessage::Eludris(msg), style));
             }
         })
         .await;
@@ -207,7 +236,20 @@ fn run_app<B: Backend>(
                                 .json(
                                     &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
                                 );
-                            tokio::spawn(async { request.send().await.unwrap() });
+                            let messages = Arc::clone(&app.messages);
+                            tokio::spawn(async move {
+                                let res =
+                                    request.send().await.unwrap().json::<EludrisMessage>().await;
+                                // Checks if the send failed and creates a system message if so
+                                if let Err(_) = res {
+                                    messages.lock().unwrap().push((
+                                        PilferMessage::System(SystemMessage {
+                                            content: "System: Couldn't send message".to_string(),
+                                        }),
+                                        Style::default().fg(Color::Yellow),
+                                    ))
+                                }
+                            });
                         }
                     }
                     KeyCode::Char(c) => {
@@ -242,60 +284,45 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
         .split(f.size());
 
-    // Handle making the messages display with mutiline support and with the paragraph preview
-    // scrolling down to show the last message, this is quite painful to do thanks to tui-rs
-
-    // Convert them to one string
-    let messages: String = app
+    let messages: Vec<ListItem> = app
         .messages
         .lock()
         .unwrap()
         .iter()
-        .map(ToString::to_string)
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    // Make messages longer than the view width seperate lines
-    let messages = messages
-        .lines()
         .map(|m| {
-            m.chars()
-                .enumerate()
-                .map(|(i, x)| {
-                    format!(
-                        "{}{}",
-                        x,
-                        if (i + 1) % (chunks[0].width - 2) as usize == 0 {
-                            "\n"
-                        } else {
-                            ""
+            ListItem::new(
+                // Seperates lines which are longer than the view width with newline characters
+                // since it doesn't wrap sometimes for some reason
+                m.0.to_string()
+                    .lines()
+                    .map(|l| {
+                        {
+                            l.chars().enumerate().map(|(i, x)| {
+                                format!(
+                                    "{}{}",
+                                    x,
+                                    if (i + 1) % (chunks[0].width - 2) as usize == 0 {
+                                        "\n"
+                                    } else {
+                                        ""
+                                    }
+                                )
+                            })
                         }
-                    )
-                })
-                .collect::<String>()
+                        .collect::<String>()
+                    })
+                    .collect::<Vec<String>>()
+                    .join("\n"),
+            )
+            .style(m.1)
         })
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    // Reverse and only take enough lines to fill the view height since any more would make the
-    // latest messages not visible
-    let messages: Vec<String> = messages
-        .lines()
         .rev()
-        .take((chunks[0].height - 2) as usize)
-        .map(ToString::to_string)
         .collect();
 
-    // Reverse them again
-    let messages: String = messages
-        .into_iter()
-        .rev()
-        .collect::<Vec<String>>()
-        .join("\n");
-
-    let messages =
-        Paragraph::new(messages).block(Block::default().borders(Borders::ALL).title("Messages"));
-    f.render_widget(messages, chunks[0]);
+    let message_list = List::new(messages)
+        .block(Block::default().borders(Borders::ALL).title("Messages"))
+        .start_corner(Corner::BottomLeft);
+    f.render_widget(message_list, chunks[0]);
 
     // Reverse the input to make it scroll to the right if you exceed the view width while typing
     let input_text: String = app
