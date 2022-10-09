@@ -175,12 +175,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                         .show()
                         .ok();
                 }
-                // Add to the Pifler's context
+                // Highlight the message if your name got mentioned
                 let style = if msg.content.to_lowercase().contains(&name.to_lowercase()) {
-                    Style::default().fg(Color::Black).bg(Color::White)
+                    Style::default().fg(Color::Yellow)
                 } else {
                     Style::default()
                 };
+                // Add to the Pifler's context
                 messages
                     .lock()
                     .unwrap()
@@ -246,7 +247,7 @@ fn run_app<B: Backend>(
                                         PilferMessage::System(SystemMessage {
                                             content: "System: Couldn't send message".to_string(),
                                         }),
-                                        Style::default().fg(Color::Yellow),
+                                        Style::default().fg(Color::Cyan),
                                     ))
                                 }
                             });
