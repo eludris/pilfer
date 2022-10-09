@@ -10,13 +10,12 @@ use notify_rust::NotificationHandle;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-#[cfg(target_os = "linux")]
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     env,
     error::Error,
     fmt::Display,
     io::{self, Write},
+    sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     time::Duration,
     vec,
@@ -58,7 +57,6 @@ struct AppContext {
     /// Oprish URL
     rest_url: String,
     /// Whether the user is currently focused.
-    #[cfg(target_os = "linux")]
     focused: Arc<AtomicBool>,
     /// The notification
     #[cfg(target_os = "linux")]
@@ -94,7 +92,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let messages = Arc::new(Mutex::new(vec![]));
 
-    #[cfg(target_os = "linux")]
     let focused = Arc::new(AtomicBool::new(true));
     #[cfg(target_os = "linux")]
     let notification = Arc::new(Mutex::new(None));
@@ -105,7 +102,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
-        #[cfg(target_os = "linux")]
         focused: Arc::clone(&focused),
         #[cfg(target_os = "linux")]
         notification: Arc::clone(&notification),
@@ -192,15 +188,14 @@ fn run_app<B: Backend>(
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
             match event {
-                #[cfg(target_os = "linux")]
                 Event::FocusGained => {
-                    // Kill the displayed notification if it currently exists
                     app.focused.store(true, Ordering::Relaxed);
+                    // Kill the displayed notification if it currently exists
+                    #[cfg(target_os = "linux")]
                     if let Some(notif) = app.notification.lock().unwrap().take() {
                         notif.close();
                     }
                 }
-                #[cfg(target_os = "linux")]
                 Event::FocusLost => app.focused.store(false, Ordering::Relaxed),
                 Event::Key(key) => match key.code {
                     KeyCode::Enter => {
