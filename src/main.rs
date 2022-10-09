@@ -4,10 +4,13 @@ use crossterm::{
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
 use futures::{SinkExt, StreamExt};
-use notify_rust::{Notification, NotificationHandle};
+use notify_rust::Notification;
+#[cfg(target_os = "linux")]
+use notify_rust::NotificationHandle;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+#[cfg(target_os = "linux")]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::{
     env,
@@ -44,12 +47,21 @@ const REST_URL: &str = "https://eludris.tooty.xyz/";
 const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
 
 struct AppContext {
+    /// Current input
     input: String,
+    /// User name
     name: String,
+    /// Received messages
     messages: Arc<Mutex<Vec<EludrisMessage>>>,
+    /// Reqwest HTTPClient
     http_client: Client,
+    /// Oprish URL
     rest_url: String,
+    /// Whether the user is currently focused.
+    #[cfg(target_os = "linux")]
     focused: Arc<AtomicBool>,
+    /// The notification
+    #[cfg(target_os = "linux")]
     notification: Arc<Mutex<Option<NotificationHandle>>>,
 }
 
@@ -57,6 +69,7 @@ struct AppContext {
 async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout();
 
+    // Get a name that complies with Eludris' 2-32 name character limit
     let name = env::var("PILFER_NAME").unwrap_or_else(|_| loop {
         print!("What's your name? > ");
         stdout.flush().unwrap();
@@ -80,7 +93,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let messages = Arc::new(Mutex::new(vec![]));
+
+    #[cfg(target_os = "linux")]
     let focused = Arc::new(AtomicBool::new(true));
+    #[cfg(target_os = "linux")]
     let notification = Arc::new(Mutex::new(None));
 
     let app = AppContext {
@@ -89,7 +105,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         messages: Arc::clone(&messages),
         http_client: Client::new(),
         rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
+        #[cfg(target_os = "linux")]
         focused: Arc::clone(&focused),
+        #[cfg(target_os = "linux")]
         notification: Arc::clone(&notification),
     };
 
@@ -99,6 +117,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     let (mut tx, rx) = socket.split();
 
+    // Handle ping-pong loop
     tokio::spawn(async move {
         loop {
             tx.send(Message::Ping(vec![])).await.unwrap();
@@ -106,30 +125,40 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
 
+    // Handle receiving pandemonium events
     tokio::spawn(async move {
         rx.for_each(|msg| async {
             if let Ok(Message::Text(msg)) = msg {
                 let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
                 if !focused.load(std::sync::atomic::Ordering::Relaxed) {
-                    let mut notif = notification.lock().unwrap();
-                    match notif.as_mut() {
-                        Some(notif) => {
-                            notif.body(&msg.to_string());
-                            notif.update()
-                        }
-                        None => {
-                            *notif = match Notification::new()
-                                .summary("New Pilfer Message")
-                                .body(&msg.to_string())
-                                .show()
-                            {
-                                Ok(notif) => Some(notif),
-                                Err(_) => None,
-                            };
+                    #[cfg(target_os = "linux")]
+                    {
+                        let mut notif = notification.lock().unwrap();
+                        match notif.as_mut() {
+                            Some(notif) => {
+                                notif.body(&msg.to_string());
+                                notif.update()
+                            }
+                            None => {
+                                *notif = match Notification::new()
+                                    .summary("New Pilfer Message")
+                                    .body(&msg.to_string())
+                                    .show()
+                                {
+                                    Ok(notif) => Some(notif),
+                                    Err(_) => None,
+                                };
+                            }
                         }
                     }
+                    #[cfg(not(target_os = "linux"))]
+                    Notification::new()
+                        .summary("New Pilfer Message")
+                        .body(&msg.to_string())
+                        .show()
+                        .ok();
                 }
-
+                // Add to the Pifler's context
                 messages.lock().unwrap().push(msg);
             }
         })
@@ -163,15 +192,19 @@ fn run_app<B: Backend>(
         if event::poll(Duration::from_millis(100))? {
             let event = event::read()?;
             match event {
+                #[cfg(target_os = "linux")]
                 Event::FocusGained => {
+                    // Kill the displayed notification if it currently exists
                     app.focused.store(true, Ordering::Relaxed);
                     if let Some(notif) = app.notification.lock().unwrap().take() {
                         notif.close();
                     }
                 }
+                #[cfg(target_os = "linux")]
                 Event::FocusLost => app.focused.store(false, Ordering::Relaxed),
                 Event::Key(key) => match key.code {
                     KeyCode::Enter => {
+                        // Send a message
                         if !app.input.is_empty() {
                             let request = app
                                 .http_client
@@ -183,6 +216,7 @@ fn run_app<B: Backend>(
                         }
                     }
                     KeyCode::Char(c) => {
+                        // Keybingings go here
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             match c {
                                 'c' => break,
@@ -213,6 +247,10 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
         .split(f.size());
 
+    // Handle making the messages display with mutiline support and with the paragraph preview
+    // scrolling down to show the last message, this is quite painful to do thanks to tui-rs
+
+    // Convert them to one string
     let messages: String = app
         .messages
         .lock()
@@ -222,6 +260,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .collect::<Vec<String>>()
         .join("\n");
 
+    // Make messages longer than the view width seperate lines
     let messages = messages
         .lines()
         .map(|m| {
@@ -243,6 +282,8 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .collect::<Vec<String>>()
         .join("\n");
 
+    // Reverse and only take enough lines to fill the view height since any more would make the
+    // latest messages not visible
     let messages: Vec<String> = messages
         .lines()
         .rev()
@@ -250,17 +291,18 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .map(ToString::to_string)
         .collect();
 
+    // Reverse them again
     let messages: String = messages
         .into_iter()
         .rev()
         .collect::<Vec<String>>()
         .join("\n");
 
-    let messages = Paragraph::new(messages)
-        // .wrap(Wrap { trim: false })
-        .block(Block::default().borders(Borders::ALL).title("Messages"));
+    let messages =
+        Paragraph::new(messages).block(Block::default().borders(Borders::ALL).title("Messages"));
     f.render_widget(messages, chunks[0]);
 
+    // Reverse the input to make it scroll to the right if you exceed the view width while typing
     let input_text: String = app
         .input
         .split('\n')
