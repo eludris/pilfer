@@ -3,6 +3,10 @@ use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
+use discord_rich_presence::{
+    activity::{Activity, Assets, Button, Timestamps},
+    DiscordIpc, DiscordIpcClient,
+};
 use futures::{SinkExt, StreamExt};
 use notify_rust::Notification;
 #[cfg(target_os = "linux")]
@@ -17,7 +21,7 @@ use std::{
     io::{self, Write},
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, SystemTime, UNIX_EPOCH},
     vec,
 };
 use tokio::time;
@@ -30,6 +34,10 @@ use tui::{
     Frame, Terminal,
 };
 use unicode_width::UnicodeWidthStr;
+
+const REST_URL: &str = "https://eludris.tooty.xyz/";
+const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
+const PILFER_APP_ID: &str = "1028728489165193247";
 
 #[derive(Debug, Serialize, Deserialize)]
 struct EludrisMessage {
@@ -62,9 +70,6 @@ impl Display for PilferMessage {
         }
     }
 }
-
-const REST_URL: &str = "https://eludris.tooty.xyz/";
-const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
 
 struct AppContext {
     /// Current input
@@ -105,6 +110,37 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         println!("Your name has to be between 2 and 32 characters long, try again!");
     });
+
+    // Discord rich presence stuff
+    let mut client = DiscordIpcClient::new(PILFER_APP_ID).unwrap();
+    if let Ok(_) = client.connect() {
+        let assets = Assets::new()
+            .large_image("pilfer")
+            .large_text("Using Pilfer; An Eludris TUI interface");
+
+        let timestamp = Timestamps::new().start(
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_secs() as i64,
+        );
+
+        let buttons = vec![
+            Button::new("Eludris", "https://github.com/eludris"),
+            Button::new("Pilfer", "https://github.com/eludris/pilfer"),
+        ];
+
+        client
+            .set_activity(
+                Activity::new()
+                    .details("Chatting on Eludris")
+                    .state(&format!("Talking as {}", name))
+                    .assets(assets)
+                    .timestamps(timestamp)
+                    .buttons(buttons),
+            )
+            .unwrap();
+    }
 
     enable_raw_mode()?;
     execute!(stdout, EnterAlternateScreen, EnableFocusChange)?;
