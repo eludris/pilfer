@@ -1,8 +1,10 @@
+<p align="center"><img width="200px" alt="pilfer logo" src="https://github.com/eludris/pilfer/blob/main/assets/pilfer.png" /></p>
+
 # Pilfer
 
 A simple TUI for Eludris made in rust.
 
-![An image of pilfer in action](https://github.com/Eludris/pilfer/blob/main/assets/pilfer.png)
+![An image of pilfer in action](https://github.com/eludris/pilfer/blob/main/assets/pilfer-preview.png)
 
 ## Usage
 
