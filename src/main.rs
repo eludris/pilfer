@@ -327,12 +327,12 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .unwrap()
         .iter()
         .map(|m| {
-            ListItem::new(
-                // Seperates lines which are longer than the view width with newline characters
-                // since it doesn't wrap sometimes for some reason
-                m.0.to_string()
-                    .lines()
-                    .map(|l| {
+            // Seperates lines which are longer than the view width with newline characters
+            // since it doesn't wrap sometimes for some reason
+            m.0.to_string()
+                .lines()
+                .map(|l| {
+                    ListItem::new(
                         {
                             l.chars().enumerate().map(|(i, x)| {
                                 format!(
@@ -346,13 +346,13 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
                                 )
                             })
                         }
-                        .collect::<String>()
-                    })
-                    .collect::<Vec<String>>()
-                    .join("\n"),
-            )
-            .style(m.1)
+                        .collect::<String>(),
+                    )
+                    .style(m.1)
+                })
+                .collect::<Vec<ListItem>>()
         })
+        .flatten()
         .rev()
         .collect();
 
