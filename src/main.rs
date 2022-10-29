@@ -91,6 +91,11 @@ struct AppContext {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |p| {
+        disable_raw_mode().unwrap();
+        hook(p);
+    }));
     let mut stdout = io::stdout();
 
     // Get a name that complies with Eludris' 2-32 name character limit
