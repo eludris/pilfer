@@ -45,6 +45,8 @@ struct EludrisMessage {
     content: String,
 }
 
+// While in hindsight this might look like it's modeled in a bad way, you're right, it's modeled in
+// a bad way.
 #[derive(Debug)]
 struct SystemMessage {
     content: String,
@@ -94,6 +96,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |p| {
         disable_raw_mode().unwrap();
+        let terminal = CrosstermBackend::new(io::stdout());
+        let mut terminal = Terminal::new(terminal).unwrap();
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableFocusChange
+        )
+        .unwrap();
         hook(p);
     }));
     let mut stdout = io::stdout();
@@ -169,67 +179,117 @@ async fn main() -> Result<(), Box<dyn Error>> {
         notification: Arc::clone(&notification),
     };
 
-    let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
-
-    let (socket, _) = connect_async(gateway_url).await.unwrap();
-
-    let (mut tx, rx) = socket.split();
-
-    // Handle ping-pong loop
     tokio::spawn(async move {
+        let mut retries = 0;
         loop {
-            tx.send(Message::Ping(vec![])).await.unwrap();
-            time::sleep(Duration::from_secs(15)).await;
-        }
-    });
+            if retries >= 3 {
+                messages.lock().unwrap().push((
+                    PilferMessage::System(SystemMessage {
+                        content:
+                            "Could not reconnect to Eludris after 3 retries, press Ctrl+C to exit"
+                                .to_string(),
+                    }),
+                    Style::default().bg(Color::Red).fg(Color::Black),
+                ));
+                return;
+            } else {
+                retries += 1;
+            }
+            let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
 
-    // Handle receiving pandemonium events
-    tokio::spawn(async move {
-        rx.for_each(|msg| async {
-            if let Ok(Message::Text(msg)) = msg {
-                let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
-                if !focused.load(std::sync::atomic::Ordering::Relaxed) {
-                    #[cfg(target_os = "linux")]
-                    {
-                        let mut notif = notification.lock().unwrap();
-                        match notif.as_mut() {
-                            Some(notif) => {
-                                notif.body(&msg.to_string());
-                                notif.update()
-                            }
-                            None => {
-                                *notif = match Notification::new()
+            let socket = match connect_async(gateway_url).await {
+                Ok((socket, _)) => socket,
+                Err(err) => {
+                    messages.lock().unwrap().push((
+                        PilferMessage::System(SystemMessage {
+                            content: format!(
+                                "Could not connect: {:?}, reconnecting (retry {})",
+                                err, retries
+                            ),
+                        }),
+                        Style::default().fg(Color::Red),
+                    ));
+                    continue;
+                }
+            };
+            retries = 0;
+
+            let (mut tx, mut rx) = socket.split();
+
+            // Handle ping-pong loop
+            let ping = tokio::spawn(async move {
+                loop {
+                    match tx.send(Message::Ping(vec![])).await {
+                        Ok(()) => time::sleep(Duration::from_secs(15)).await,
+                        Err(_) => time::sleep(Duration::from_secs(1)).await,
+                    };
+                }
+            });
+
+            // Handle receiving pandemonium events
+            while let Some(msg) = rx.next().await {
+                if let Ok(msg) = msg {
+                    match msg {
+                        Message::Text(msg) => {
+                            let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
+                            if !focused.load(std::sync::atomic::Ordering::Relaxed) {
+                                #[cfg(target_os = "linux")]
+                                {
+                                    let mut notif = notification.lock().unwrap();
+                                    match notif.as_mut() {
+                                        Some(notif) => {
+                                            notif.body(&msg.to_string());
+                                            notif.update()
+                                        }
+                                        None => {
+                                            *notif = match Notification::new()
+                                                .summary("New Pilfer Message")
+                                                .body(&msg.to_string())
+                                                .show()
+                                            {
+                                                Ok(notif) => Some(notif),
+                                                Err(_) => None,
+                                            };
+                                        }
+                                    }
+                                }
+                                #[cfg(not(target_os = "linux"))]
+                                Notification::new()
                                     .summary("New Pilfer Message")
                                     .body(&msg.to_string())
                                     .show()
-                                {
-                                    Ok(notif) => Some(notif),
-                                    Err(_) => None,
-                                };
+                                    .ok();
                             }
+                            // Highlight the message if your name got mentioned
+                            let style = if msg.content.to_lowercase().contains(&name.to_lowercase())
+                            {
+                                Style::default().fg(Color::Yellow)
+                            } else {
+                                Style::default()
+                            };
+                            // Add to the Pifler's context
+                            messages
+                                .lock()
+                                .unwrap()
+                                .push((PilferMessage::Eludris(msg), style));
                         }
+                        Message::Close(frame) => {
+                            if let Some(frame) = frame {
+                                messages.lock().unwrap().push((
+                                    PilferMessage::System(SystemMessage {
+                                        content: format!("{}, retrying", frame.reason),
+                                    }),
+                                    Style::default().fg(Color::Red),
+                                ))
+                            }
+                            ping.abort();
+                            continue;
+                        }
+                        _ => {}
                     }
-                    #[cfg(not(target_os = "linux"))]
-                    Notification::new()
-                        .summary("New Pilfer Message")
-                        .body(&msg.to_string())
-                        .show()
-                        .ok();
                 }
-                // Highlight the message if your name got mentioned
-                let style = if msg.content.to_lowercase().contains(&name.to_lowercase()) {
-                    Style::default().fg(Color::Yellow)
-                } else {
-                    Style::default()
-                };
-                // Add to the Pifler's context
-                messages
-                    .lock()
-                    .unwrap()
-                    .push((PilferMessage::Eludris(msg), style));
             }
-        })
-        .await;
+        }
     });
 
     let res = run_app(&mut terminal, app);
@@ -240,7 +300,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         LeaveAlternateScreen,
         DisableFocusChange
     )?;
-    terminal.show_cursor()?;
 
     if let Err(err) = res {
         println!("{:?}", err)
