@@ -337,23 +337,28 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
             m.0.to_string()
                 .lines()
                 .map(|l| {
-                    ListItem::new(
-                        {
-                            l.chars().enumerate().map(|(i, x)| {
-                                format!(
-                                    "{}{}",
-                                    x,
-                                    if (i + 1) % (chunks[0].width - 2) as usize == 0 {
-                                        "\n"
-                                    } else {
-                                        ""
-                                    }
-                                )
-                            })
-                        }
-                        .collect::<String>(),
-                    )
-                    .style(m.1)
+                    // Probably a newline
+                    if l.is_empty() {
+                        ListItem::new("\n")
+                    } else {
+                        ListItem::new(
+                            {
+                                l.chars().enumerate().map(|(i, x)| {
+                                    format!(
+                                        "{}{}",
+                                        x,
+                                        if (i + 1) % (chunks[0].width - 2) as usize == 0 {
+                                            "\n"
+                                        } else {
+                                            ""
+                                        }
+                                    )
+                                })
+                            }
+                            .collect::<String>(),
+                        )
+                        .style(m.1)
+                    }
                 })
                 .collect::<Vec<ListItem>>()
         })
