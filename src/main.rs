@@ -128,7 +128,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     // Discord rich presence stuff
     let mut client = DiscordIpcClient::new(PILFER_APP_ID).unwrap();
-    if let Ok(_) = client.connect() {
+    if client.connect().is_ok() {
         let assets = Assets::new()
             .large_image("pilfer")
             .large_text("Using Pilfer; An Eludris TUI interface");
@@ -227,66 +227,63 @@ async fn main() -> Result<(), Box<dyn Error>> {
             });
 
             // Handle receiving pandemonium events
-            while let Some(msg) = rx.next().await {
-                if let Ok(msg) = msg {
-                    match msg {
-                        Message::Text(msg) => {
-                            let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
-                            if !focused.load(std::sync::atomic::Ordering::Relaxed) {
-                                #[cfg(target_os = "linux")]
-                                {
-                                    let mut notif = notification.lock().unwrap();
-                                    match notif.as_mut() {
-                                        Some(notif) => {
-                                            notif.body(&msg.to_string());
-                                            notif.update()
-                                        }
-                                        None => {
-                                            *notif = match Notification::new()
-                                                .summary("New Pilfer Message")
-                                                .body(&msg.to_string())
-                                                .show()
-                                            {
-                                                Ok(notif) => Some(notif),
-                                                Err(_) => None,
-                                            };
-                                        }
+            while let Some(Ok(msg)) = rx.next().await {
+                match msg {
+                    Message::Text(msg) => {
+                        let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
+                        if !focused.load(std::sync::atomic::Ordering::Relaxed) {
+                            #[cfg(target_os = "linux")]
+                            {
+                                let mut notif = notification.lock().unwrap();
+                                match notif.as_mut() {
+                                    Some(notif) => {
+                                        notif.body(&msg.to_string());
+                                        notif.update()
+                                    }
+                                    None => {
+                                        *notif = match Notification::new()
+                                            .summary("New Pilfer Message")
+                                            .body(&msg.to_string())
+                                            .show()
+                                        {
+                                            Ok(notif) => Some(notif),
+                                            Err(_) => None,
+                                        };
                                     }
                                 }
-                                #[cfg(not(target_os = "linux"))]
-                                Notification::new()
-                                    .summary("New Pilfer Message")
-                                    .body(&msg.to_string())
-                                    .show()
-                                    .ok();
                             }
-                            // Highlight the message if your name got mentioned
-                            let style = if msg.content.to_lowercase().contains(&name.to_lowercase())
-                            {
-                                Style::default().fg(Color::Yellow)
-                            } else {
-                                Style::default()
-                            };
-                            // Add to the Pifler's context
-                            messages
-                                .lock()
-                                .unwrap()
-                                .push((PilferMessage::Eludris(msg), style));
+                            #[cfg(not(target_os = "linux"))]
+                            Notification::new()
+                                .summary("New Pilfer Message")
+                                .body(&msg.to_string())
+                                .show()
+                                .ok();
                         }
-                        Message::Close(frame) => {
-                            if let Some(frame) = frame {
-                                messages.lock().unwrap().push((
-                                    PilferMessage::System(SystemMessage {
-                                        content: format!("{}, retrying", frame.reason),
-                                    }),
-                                    Style::default().fg(Color::Red),
-                                ))
-                            }
-                            ping.abort();
-                            continue;
-                        }
-                        _ => {}
+                        // Highlight the message if your name got mentioned
+                        let style = if msg.content.to_lowercase().contains(&name.to_lowercase()) {
+                            Style::default().fg(Color::Yellow)
+                        } else {
+                            Style::default()
+                        };
+                        // Add to the Pifler's context
+                        messages
+                            .lock()
+                            .unwrap()
+                            .push((PilferMessage::Eludris(msg), style));
                     }
+                    Message::Close(frame) => {
+                        if let Some(frame) = frame {
+                            messages.lock().unwrap().push((
+                                PilferMessage::System(SystemMessage {
+                                    content: format!("{}, retrying", frame.reason),
+                                }),
+                                Style::default().fg(Color::Red),
+                            ))
+                        }
+                        ping.abort();
+                        continue;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -342,7 +339,7 @@ fn run_app<B: Backend>(
                                 let res =
                                     request.send().await.unwrap().json::<EludrisMessage>().await;
                                 // Checks if the send failed and creates a system message if so
-                                if let Err(_) = res {
+                                if res.is_err() {
                                     messages.lock().unwrap().push((
                                         PilferMessage::System(SystemMessage {
                                             content: "System: Couldn't send message".to_string(),
@@ -390,7 +387,7 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .lock()
         .unwrap()
         .iter()
-        .map(|m| {
+        .flat_map(|m| {
             // Seperates lines which are longer than the view width with newline characters
             // since it doesn't wrap sometimes for some reason
             m.0.to_string()
@@ -421,7 +418,6 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
                 })
                 .collect::<Vec<ListItem>>()
         })
-        .flatten()
         .rev()
         .collect();
 
