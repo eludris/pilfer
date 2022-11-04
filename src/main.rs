@@ -11,7 +11,7 @@ use futures::{SinkExt, StreamExt};
 use notify_rust::Notification;
 #[cfg(target_os = "linux")]
 use notify_rust::NotificationHandle;
-use reqwest::Client;
+use reqwest::{Client, RequestBuilder};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
@@ -40,9 +40,26 @@ const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
 const PILFER_APP_ID: &str = "1028728489165193247";
 
 #[derive(Debug, Serialize, Deserialize)]
+struct RatelimitResponse {
+    data: RatelimitData,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct RatelimitData {
+    retry_after: u64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
 struct EludrisMessage {
     author: String,
     content: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+enum MessageResponse {
+    Message(EludrisMessage),
+    Ratelimited(RatelimitResponse),
 }
 
 // While in hindsight this might look like it's modeled in a bad way, you're right, it's modeled in
@@ -180,31 +197,23 @@ async fn main() -> Result<(), Box<dyn Error>> {
     };
 
     tokio::spawn(async move {
-        let mut retries = 0;
+        let mut wait = 0;
         loop {
-            if retries >= 3 {
-                messages.lock().unwrap().push((
-                    PilferMessage::System(SystemMessage {
-                        content:
-                            "Could not reconnect to Eludris after 3 retries, press Ctrl+C to exit"
-                                .to_string(),
-                    }),
-                    Style::default().bg(Color::Red).fg(Color::Black),
-                ));
-                return;
-            } else {
-                retries += 1;
-            }
             let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
+
+            if wait > 0 {
+                time::sleep(Duration::from_secs(wait)).await;
+            }
 
             let socket = match connect_async(gateway_url).await {
                 Ok((socket, _)) => socket,
                 Err(err) => {
+                    wait *= 2;
                     messages.lock().unwrap().push((
                         PilferMessage::System(SystemMessage {
                             content: format!(
-                                "Could not connect: {:?}, reconnecting (retry {})",
-                                err, retries
+                                "Could not connect: {:?}, reconnecting in {}s (press Ctrl+C to exit)",
+                                err, wait
                             ),
                         }),
                         Style::default().fg(Color::Red),
@@ -212,7 +221,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                     continue;
                 }
             };
-            retries = 0;
+            wait = 0;
 
             let (mut tx, mut rx) = socket.split();
 
@@ -221,7 +230,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 loop {
                     match tx.send(Message::Ping(vec![])).await {
                         Ok(()) => time::sleep(Duration::from_secs(15)).await,
-                        Err(_) => time::sleep(Duration::from_secs(1)).await,
+                        Err(_) => break,
                     };
                 }
             });
@@ -335,19 +344,7 @@ fn run_app<B: Backend>(
                                     &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
                                 );
                             let messages = Arc::clone(&app.messages);
-                            tokio::spawn(async move {
-                                let res =
-                                    request.send().await.unwrap().json::<EludrisMessage>().await;
-                                // Checks if the send failed and creates a system message if so
-                                if res.is_err() {
-                                    messages.lock().unwrap().push((
-                                        PilferMessage::System(SystemMessage {
-                                            content: "System: Couldn't send message".to_string(),
-                                        }),
-                                        Style::default().fg(Color::Cyan),
-                                    ))
-                                }
-                            });
+                            tokio::spawn(handle_request(request, messages));
                         }
                     }
                     KeyCode::Char(c) => {
@@ -442,4 +439,39 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .block(Block::default().borders(Borders::ALL).title("Input"));
     f.render_widget(input, chunks[1]);
     f.set_cursor(chunks[1].x + input_text.width() as u16 + 1, chunks[1].y + 1);
+}
+
+async fn handle_request(
+    request: RequestBuilder,
+    messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
+) {
+    let res = request.send().await;
+    match res {
+        Ok(res) => match res.json::<MessageResponse>().await {
+            Ok(resp) => match resp {
+                MessageResponse::Ratelimited(resp) => messages.lock().unwrap().push((
+                    PilferMessage::System(SystemMessage {
+                        content: format!(
+                            "System: You've been ratelimited, try in {}s",
+                            resp.data.retry_after / 1000
+                        ),
+                    }),
+                    Style::default().fg(Color::Cyan),
+                )),
+                MessageResponse::Message(_) => {}
+            },
+            Err(err) => messages.lock().unwrap().push((
+                PilferMessage::System(SystemMessage {
+                    content: format!("System: Couldn't send message: {:?}", err),
+                }),
+                Style::default().fg(Color::Red),
+            )),
+        },
+        Err(err) => messages.lock().unwrap().push((
+            PilferMessage::System(SystemMessage {
+                content: format!("System: Couldn't send message: {:?}", err),
+            }),
+            Style::default().fg(Color::Red),
+        )),
+    };
 }
