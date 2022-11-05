@@ -222,6 +222,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 }
             };
             wait = 0;
+            messages.lock().unwrap().push((
+                PilferMessage::System(SystemMessage {
+                    content: "Connected to Pandemonium".to_string(),
+                }),
+                Style::default().fg(Color::Green),
+            ));
 
             let (mut tx, mut rx) = socket.split();
 
@@ -229,7 +235,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let ping = tokio::spawn(async move {
                 loop {
                     match tx.send(Message::Ping(vec![])).await {
-                        Ok(()) => time::sleep(Duration::from_secs(15)).await,
+                        Ok(()) => time::sleep(Duration::from_secs(20)).await,
                         Err(_) => break,
                     };
                 }
