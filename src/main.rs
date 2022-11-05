@@ -208,7 +208,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             let socket = match connect_async(gateway_url).await {
                 Ok((socket, _)) => socket,
                 Err(err) => {
-                    wait *= 2;
+                    if wait < 64 {
+                        wait *= 2;
+                    }
                     messages.lock().unwrap().push((
                         PilferMessage::System(SystemMessage {
                             content: format!(
