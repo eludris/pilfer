@@ -90,6 +90,11 @@ impl Display for PilferMessage {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct InfoResponse {
+    instance_name: String,
+}
+
 struct AppContext {
     /// Current input
     input: String,
@@ -143,6 +148,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Your name has to be between 2 and 32 characters long, try again!");
     });
 
+    let rest_url = env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string());
+    let http_client = Client::new();
+    let info: InfoResponse = http_client
+        .get(&rest_url)
+        .send()
+        .await
+        .expect("Can not connect to Oprish")
+        .json()
+        .await
+        .expect("Server returned a malformed info response");
+
     // Discord rich presence stuff
     let mut client = DiscordIpcClient::new(PILFER_APP_ID).unwrap();
     if client.connect().is_ok() {
@@ -166,7 +182,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             .set_activity(
                 Activity::new()
                     .details("Chatting on Eludris")
-                    .state(&format!("Talking as {}", name))
+                    .state(&format!("Talking on {} as {}", info.instance_name, name))
                     .assets(assets)
                     .timestamps(timestamp)
                     .buttons(buttons),
@@ -189,8 +205,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         input: String::new(),
         name: name.clone(),
         messages: Arc::clone(&messages),
-        http_client: Client::new(),
-        rest_url: env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string()),
+        http_client,
+        rest_url,
         focused: Arc::clone(&focused),
         #[cfg(target_os = "linux")]
         notification: Arc::clone(&notification),
