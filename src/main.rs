@@ -413,28 +413,32 @@ fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
             // since it doesn't wrap sometimes for some reason
             m.0.to_string()
                 .lines()
-                .map(|l| {
+                .flat_map(|l| {
                     // Probably a newline
                     if l.is_empty() {
-                        ListItem::new("\n")
+                        vec![ListItem::new("\n")]
                     } else {
-                        ListItem::new(
-                            {
-                                l.chars().enumerate().map(|(i, x)| {
-                                    format!(
-                                        "{}{}",
-                                        x,
-                                        if (i + 1) % (chunks[0].width - 2) as usize == 0 {
-                                            "\n"
-                                        } else {
-                                            ""
-                                        }
-                                    )
-                                })
+                        let mut parts: Vec<String> = Vec::new();
+                        let mut l = l.to_string();
+                        loop {
+                            if l.is_empty() {
+                                break;
                             }
-                            .collect::<String>(),
-                        )
-                        .style(m.1)
+                            parts.push(
+                                l.drain(
+                                    ..if l.len() > (chunks[0].width - 2) as usize {
+                                        (chunks[0].width - 2) as usize
+                                    } else {
+                                        l.len()
+                                    },
+                                )
+                                .collect::<String>(),
+                            );
+                        }
+                        parts
+                            .into_iter()
+                            .map(|l| ListItem::new(l).style(m.1))
+                            .collect::<Vec<ListItem>>()
                     }
                 })
                 .collect::<Vec<ListItem>>()
