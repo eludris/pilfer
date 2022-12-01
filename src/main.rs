@@ -39,6 +39,7 @@ use unicode_width::UnicodeWidthStr;
 const REST_URL: &str = "https://eludris.tooty.xyz/";
 const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
 const PILFER_APP_ID: &str = "1028728489165193247";
+pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 
 #[derive(Debug, Serialize, Deserialize)]
 struct RatelimitResponse {
@@ -120,22 +121,31 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stdout = io::stdout();
 
     // Get a name that complies with Eludris' 2-32 name character limit
-    let name = env::var("PILFER_NAME").unwrap_or_else(|_| loop {
-        print!("What's your name? > ");
-        stdout.flush().unwrap();
-
-        let mut name = String::new();
-
-        io::stdin().read_line(&mut name).unwrap();
-
-        let name = name.trim();
-
-        if name.len() <= 32 && name.len() >= 2 {
-            break name.to_string();
+    let name = match env::args().nth(1) {
+        Some(name) => {
+            if name == "-v" || name == "--version" {
+                println!("Version: {}", VERSION);
+                return Ok(());
+            }
+            name
         }
+        None => env::var("PILFER_NAME").unwrap_or_else(|_| loop {
+            print!("What's your name? > ");
+            stdout.flush().unwrap();
 
-        println!("Your name has to be between 2 and 32 characters long, try again!");
-    });
+            let mut name = String::new();
+
+            io::stdin().read_line(&mut name).unwrap();
+
+            let name = name.trim();
+
+            if name.len() <= 32 && name.len() >= 2 {
+                break name.to_string();
+            }
+
+            println!("Your name has to be between 2 and 32 characters long, try again!");
+        }),
+    };
 
     let rest_url = env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string());
     let http_client = Client::new();
