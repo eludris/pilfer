@@ -24,8 +24,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
     vec,
 };
+use todel::models::{Message, Payload};
 use tokio::time;
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 use tui::{
     backend::{Backend, CrosstermBackend},
     layout::{Constraint, Corner, Direction, Layout},
@@ -50,15 +51,9 @@ struct RatelimitData {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct EludrisMessage {
-    author: String,
-    content: String,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 enum MessageResponse {
-    Message(EludrisMessage),
+    Message(Message),
     Ratelimited(RatelimitResponse),
 }
 
@@ -71,20 +66,14 @@ struct SystemMessage {
 
 #[derive(Debug)]
 enum PilferMessage {
-    Eludris(EludrisMessage),
+    Eludris(Message),
     System(SystemMessage),
-}
-
-impl Display for EludrisMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&format!("[{}]: {}", self.author, self.content))
-    }
 }
 
 impl Display for PilferMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PilferMessage::Eludris(msg) => write!(f, "{}", msg),
+            PilferMessage::Eludris(msg) => write!(f, "[{}]: {}", msg.author, msg.content),
             PilferMessage::System(msg) => write!(f, "{}", msg.content),
         }
     }
@@ -102,7 +91,7 @@ struct AppContext {
     name: String,
     /// Received messages
     messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
-    /// Reqwest HTTPClient
+    /// Reqwest HttpClient
     http_client: Client,
     /// Oprish URL
     rest_url: String,
@@ -252,7 +241,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Handle ping-pong loop
             let ping = tokio::spawn(async move {
                 loop {
-                    match tx.send(Message::Ping(vec![])).await {
+                    match tx
+                        .send(WsMessage::Text(
+                            serde_json::to_string(&Payload::Ping).unwrap(),
+                        ))
+                        .await
+                    {
                         Ok(()) => time::sleep(Duration::from_secs(20)).await,
                         Err(_) => break,
                     };
@@ -262,21 +256,32 @@ async fn main() -> Result<(), Box<dyn Error>> {
             // Handle receiving pandemonium events
             while let Some(Ok(msg)) = rx.next().await {
                 match msg {
-                    Message::Text(msg) => {
-                        let msg: EludrisMessage = serde_json::from_str(&msg).unwrap();
+                    WsMessage::Text(msg) => {
+                        let msg: Message = match serde_json::from_str(&msg) {
+                            Ok(Payload::MessageCreate(msg)) => msg,
+                            _ => continue,
+                        };
                         if !focused.load(std::sync::atomic::Ordering::Relaxed) {
                             #[cfg(target_os = "linux")]
                             {
                                 let mut notif = notification.lock().unwrap();
                                 match notif.as_mut() {
                                     Some(notif) => {
-                                        notif.body(&msg.to_string());
+                                        notif
+                                            .summary(&format!(
+                                                "New Pilfer message from {}",
+                                                msg.author
+                                            ))
+                                            .body(&msg.content.to_string());
                                         notif.update()
                                     }
                                     None => {
                                         *notif = match Notification::new()
-                                            .summary("New Pilfer Message")
-                                            .body(&msg.to_string())
+                                            .summary(&format!(
+                                                "New Pilfer message from {}",
+                                                msg.author
+                                            ))
+                                            .body(&msg.content)
                                             .show()
                                         {
                                             Ok(notif) => Some(notif),
@@ -287,8 +292,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             }
                             #[cfg(not(target_os = "linux"))]
                             Notification::new()
-                                .summary("New Pilfer Message")
-                                .body(&msg.to_string())
+                                .summary(&format!("New Pilfer message from {}", msg.author))
+                                .body(&msg.content)
                                 .show()
                                 .ok();
                         }
@@ -304,7 +309,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
                             .unwrap()
                             .push((PilferMessage::Eludris(msg), style));
                     }
-                    Message::Close(frame) => {
+                    WsMessage::Close(frame) => {
                         if let Some(frame) = frame {
                             messages.lock().unwrap().push((
                                 PilferMessage::System(SystemMessage {
