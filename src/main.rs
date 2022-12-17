@@ -154,7 +154,13 @@ async fn main() -> Result<(), anyhow::Error> {
         notification: Arc::clone(&notification),
     };
 
-    tokio::spawn(handle_gateway(messages, focused, notification, name));
+    tokio::spawn(handle_gateway(
+        messages,
+        focused,
+        #[cfg(target_os = "linux")]
+        notification,
+        name,
+    ));
 
     let res = run_app(&mut terminal, app);
 
