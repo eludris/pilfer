@@ -1,4 +1,9 @@
+mod gateway;
+mod models;
+mod ui;
+
 use crossterm::{
+    cursor::{CursorShape, SetCursorShape},
     event::{self, DisableFocusChange, EnableFocusChange, Event, KeyCode, KeyModifiers},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
@@ -7,104 +12,34 @@ use discord_rich_presence::{
     activity::{Activity, Assets, Button, Timestamps},
     DiscordIpc, DiscordIpcClient,
 };
-use futures::{SinkExt, StreamExt};
-use notify_rust::Notification;
-#[cfg(target_os = "linux")]
-use notify_rust::NotificationHandle;
+use gateway::handle_gateway;
+use models::{AppContext, MessageResponse, PilferMessage, SystemMessage};
 use reqwest::{Client, RequestBuilder};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::{
     env,
     error::Error,
-    fmt::Display,
     io::{self, Write},
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
     vec,
 };
-use todel::models::{Message, Payload};
-use tokio::time;
-use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
+use todel::models::{ErrorData, InstanceInfo};
 use tui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Corner, Direction, Layout},
     style::{Color, Style},
-    widgets::{Block, Borders, List, ListItem, Paragraph},
-    Frame, Terminal,
+    Terminal,
 };
-use unicode_width::UnicodeWidthStr;
+use ui::ui;
 
-const REST_URL: &str = "https://eludris.tooty.xyz/";
-const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
-const PILFER_APP_ID: &str = "1028728489165193247";
-pub const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-
-#[derive(Debug, Serialize, Deserialize)]
-struct RatelimitResponse {
-    data: RatelimitData,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct RatelimitData {
-    retry_after: u64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-enum MessageResponse {
-    Message(Message),
-    Ratelimited(RatelimitResponse),
-}
-
-// While in hindsight this might look like it's modeled in a bad way, you're right, it's modeled in
-// a bad way.
-#[derive(Debug)]
-struct SystemMessage {
-    content: String,
-}
-
-#[derive(Debug)]
-enum PilferMessage {
-    Eludris(Message),
-    System(SystemMessage),
-}
-
-impl Display for PilferMessage {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PilferMessage::Eludris(msg) => write!(f, "[{}]: {}", msg.author, msg.content),
-            PilferMessage::System(msg) => write!(f, "{}", msg.content),
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct InfoResponse {
-    instance_name: String,
-}
-
-struct AppContext {
-    /// Current input
-    input: String,
-    /// User name
-    name: String,
-    /// Received messages
-    messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
-    /// Reqwest HttpClient
-    http_client: Client,
-    /// Oprish URL
-    rest_url: String,
-    /// Whether the user is currently focused.
-    focused: Arc<AtomicBool>,
-    /// The notification
-    #[cfg(target_os = "linux")]
-    notification: Arc<Mutex<Option<NotificationHandle>>>,
-}
+pub const REST_URL: &str = "https://eludris.tooty.xyz/";
+pub const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
+pub const PILFER_APP_ID: &str = "1028728489165193247";
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<(), anyhow::Error> {
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |p| {
         disable_raw_mode().unwrap();
@@ -113,7 +48,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
-            DisableFocusChange
+            DisableFocusChange,
+            SetCursorShape(CursorShape::Block),
         )
         .unwrap();
         hook(p);
@@ -126,6 +62,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
             if name == "-v" || name == "--version" {
                 println!("Version: {}", VERSION);
                 return Ok(());
+            } else if name.len() < 2 || name.len() > 32 {
+                anyhow::bail!("Invalid name supplied, your name has to be between 2 and 32 characters long, try again!");
             }
             name
         }
@@ -143,13 +81,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 break name.to_string();
             }
 
-            println!("Your name has to be between 2 and 32 characters long, try again!");
+            eprintln!("Your name has to be between 2 and 32 characters long, try again!");
         }),
     };
 
     let rest_url = env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string());
     let http_client = Client::new();
-    let info: InfoResponse = http_client
+    let info: InstanceInfo = http_client
         .get(&rest_url)
         .send()
         .await
@@ -190,7 +128,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 
     enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen, EnableFocusChange)?;
+    execute!(
+        stdout,
+        EnterAlternateScreen,
+        EnableFocusChange,
+        SetCursorShape(CursorShape::Line),
+    )?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -211,131 +154,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         notification: Arc::clone(&notification),
     };
 
-    tokio::spawn(async move {
-        let mut wait = 0;
-        loop {
-            let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
-
-            if wait > 0 {
-                time::sleep(Duration::from_secs(wait)).await;
-            }
-
-            let socket = match connect_async(gateway_url).await {
-                Ok((socket, _)) => socket,
-                Err(err) => {
-                    if wait < 64 {
-                        wait *= 2;
-                    }
-                    messages.lock().unwrap().push((
-                        PilferMessage::System(SystemMessage {
-                            content: format!(
-                                "Could not connect: {:?}, reconnecting in {}s (press Ctrl+C to exit)",
-                                err, wait
-                            ),
-                        }),
-                        Style::default().fg(Color::Red),
-                    ));
-                    continue;
-                }
-            };
-            wait = 0;
-            messages.lock().unwrap().push((
-                PilferMessage::System(SystemMessage {
-                    content: "Connected to Pandemonium".to_string(),
-                }),
-                Style::default().fg(Color::Green),
-            ));
-
-            let (mut tx, mut rx) = socket.split();
-
-            // Handle ping-pong loop
-            let ping = tokio::spawn(async move {
-                loop {
-                    match tx
-                        .send(WsMessage::Text(
-                            serde_json::to_string(&Payload::Ping).unwrap(),
-                        ))
-                        .await
-                    {
-                        Ok(()) => time::sleep(Duration::from_secs(20)).await,
-                        Err(_) => break,
-                    };
-                }
-            });
-
-            // Handle receiving pandemonium events
-            while let Some(Ok(msg)) = rx.next().await {
-                match msg {
-                    WsMessage::Text(msg) => {
-                        let msg: Message = match serde_json::from_str(&msg) {
-                            Ok(Payload::MessageCreate(msg)) => msg,
-                            _ => continue,
-                        };
-                        if !focused.load(std::sync::atomic::Ordering::Relaxed) {
-                            #[cfg(target_os = "linux")]
-                            {
-                                let mut notif = notification.lock().unwrap();
-                                match notif.as_mut() {
-                                    Some(notif) => {
-                                        notif
-                                            .summary(&format!(
-                                                "New Pilfer message from {}",
-                                                msg.author
-                                            ))
-                                            .body(&msg.content.to_string());
-                                        notif.update()
-                                    }
-                                    None => {
-                                        *notif = match Notification::new()
-                                            .summary(&format!(
-                                                "New Pilfer message from {}",
-                                                msg.author
-                                            ))
-                                            .body(&msg.content)
-                                            .show()
-                                        {
-                                            Ok(notif) => Some(notif),
-                                            Err(_) => None,
-                                        };
-                                    }
-                                }
-                            }
-                            #[cfg(not(target_os = "linux"))]
-                            Notification::new()
-                                .summary(&format!("New Pilfer message from {}", msg.author))
-                                .body(&msg.content)
-                                .show()
-                                .ok();
-                        }
-                        // Highlight the message if your name got mentioned
-                        let style = if msg.content.to_lowercase().contains(&name.to_lowercase()) {
-                            Style::default().fg(Color::Yellow)
-                        } else {
-                            Style::default()
-                        };
-                        // Add to the Pifler's context
-                        messages
-                            .lock()
-                            .unwrap()
-                            .push((PilferMessage::Eludris(msg), style));
-                    }
-                    WsMessage::Close(frame) => {
-                        if let Some(frame) = frame {
-                            messages.lock().unwrap().push((
-                                PilferMessage::System(SystemMessage {
-                                    content: format!("{}, retrying", frame.reason),
-                                }),
-                                Style::default().fg(Color::Red),
-                            ))
-                        }
-                        ping.abort();
-                        continue;
-                    }
-                    _ => {}
-                }
-            }
-        }
-    });
+    tokio::spawn(handle_gateway(messages, focused, notification, name));
 
     let res = run_app(&mut terminal, app);
 
@@ -343,7 +162,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     execute!(
         terminal.backend_mut(),
         LeaveAlternateScreen,
-        DisableFocusChange
+        DisableFocusChange,
+        SetCursorShape(CursorShape::Block),
     )?;
 
     if let Err(err) = res {
@@ -412,78 +232,6 @@ fn run_app<B: Backend>(
     Ok(())
 }
 
-fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(1), Constraint::Length(3)].as_ref())
-        .split(f.size());
-
-    let messages: Vec<ListItem> = app
-        .messages
-        .lock()
-        .unwrap()
-        .iter()
-        .flat_map(|m| {
-            // Seperates lines which are longer than the view width with newline characters
-            // since it doesn't wrap sometimes for some reason
-            m.0.to_string()
-                .lines()
-                .flat_map(|l| {
-                    // Probably a newline
-                    if l.is_empty() {
-                        vec![ListItem::new("\n")]
-                    } else {
-                        let mut parts: Vec<String> = Vec::new();
-                        let mut l = l.to_string();
-                        loop {
-                            if l.is_empty() {
-                                break;
-                            }
-                            parts.push(
-                                l.drain(
-                                    ..if l.len() > (chunks[0].width - 2) as usize {
-                                        (chunks[0].width - 2) as usize
-                                    } else {
-                                        l.len()
-                                    },
-                                )
-                                .collect::<String>(),
-                            );
-                        }
-                        parts
-                            .into_iter()
-                            .map(|l| ListItem::new(l).style(m.1))
-                            .collect::<Vec<ListItem>>()
-                    }
-                })
-                .collect::<Vec<ListItem>>()
-        })
-        .rev()
-        .collect();
-
-    let message_list = List::new(messages)
-        .block(Block::default().borders(Borders::ALL).title("Messages"))
-        .start_corner(Corner::BottomLeft);
-    f.render_widget(message_list, chunks[0]);
-
-    // Reverse the input to make it scroll to the right if you exceed the view width while typing
-    let input_text: String = app
-        .input
-        .split('\n')
-        .last()
-        .unwrap_or("")
-        .chars()
-        .rev()
-        .take((chunks[1].width - 2) as usize)
-        .collect();
-    let input_text: String = input_text.chars().rev().collect();
-
-    let input = Paragraph::new(input_text.as_ref())
-        .block(Block::default().borders(Borders::ALL).title("Input"));
-    f.render_widget(input, chunks[1]);
-    f.set_cursor(chunks[1].x + input_text.width() as u16 + 1, chunks[1].y + 1);
-}
-
 async fn handle_request(
     request: RequestBuilder,
     messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
@@ -492,20 +240,28 @@ async fn handle_request(
     match res {
         Ok(res) => match res.json::<MessageResponse>().await {
             Ok(resp) => match resp {
-                MessageResponse::Ratelimited(resp) => messages.lock().unwrap().push((
-                    PilferMessage::System(SystemMessage {
-                        content: format!(
-                            "System: You've been ratelimited, try in {}s",
-                            resp.data.retry_after / 1000
-                        ),
-                    }),
-                    Style::default().fg(Color::Cyan),
-                )),
-                MessageResponse::Message(_) => {}
+                MessageResponse::Error(resp) => match resp.data {
+                    Some(ErrorData::RatelimitedError(err)) => messages.lock().unwrap().push((
+                        PilferMessage::System(SystemMessage {
+                            content: format!(
+                                "System: You've been ratelimited, try in {}s",
+                                err.retry_after / 1000
+                            ),
+                        }),
+                        Style::default().fg(Color::Red),
+                    )),
+                    _ => messages.lock().unwrap().push((
+                        PilferMessage::System(SystemMessage {
+                            content: format!("System: Couldn't send message: {:?}", resp),
+                        }),
+                        Style::default().fg(Color::Red),
+                    )),
+                },
+                MessageResponse::Success(_) => {}
             },
-            Err(err) => messages.lock().unwrap().push((
+            Err(_) => messages.lock().unwrap().push((
                 PilferMessage::System(SystemMessage {
-                    content: format!("System: Couldn't send message: {:?}", err),
+                    content: "System: Couldn't send message: got invalid response".to_string(),
                 }),
                 Style::default().fg(Color::Red),
             )),
