@@ -1700,11 +1700,12 @@ checksum = "cda74da7e1a664f795bb1f8a87ec406fb89a02522cf6e50620d016add6dbbf5c"
 
 [[package]]
 name = "todel"
-version = "0.3.0"
-source = "git+https://github.com/eludris/todel#f750a025022a01300c5e49564b1a3011ce26ca72"
+version = "0.3.1"
+source = "git+https://github.com/eludris/eludris#b2a9aa4b44ceeff3456037fbb95dff143d6b1fe1"
 dependencies = [
  "serde",
  "serde_with",
+ "ubyte",
  "url",
 ]
 
@@ -1866,6 +1867,15 @@ name = "typenum"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dcf81ac59edc17cc8697ff311e8f5ef2d99fcbd9817b34cec66f90b6c3dfd987"
+
+[[package]]
+name = "ubyte"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c81f0dae7d286ad0d9366d7679a77934cfc3cf3a8d67e82669794412b2368fe6"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "uds_windows"
