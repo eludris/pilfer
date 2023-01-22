@@ -15,6 +15,12 @@ locally with
 cargo install pilfer
 ```
 
+Pilfer is also available on the [AUR](https://aur.archlinux.org/packages/pilfer):
+
+```sh
+<your-favourite-aur-helper> -S pilfer
+```
+
 Pilfer defaults to using @ooliver1's Eludris instance located at <https://eludris.tooty.xyz/>,
 to change that overwrite the `REST_URL` environment variable.
 
