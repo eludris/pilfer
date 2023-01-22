@@ -111,8 +111,8 @@ async fn main() -> Result<(), anyhow::Error> {
         );
 
         let buttons = vec![
-            Button::new("Eludris", "https://github.com/eludris"),
-            Button::new("Pilfer", "https://github.com/eludris/pilfer"),
+            Button::new("Eludris", "https://eludris.pages.dev/"),
+            Button::new("Pilfer", "https://github.com/eludris/pilfer/"),
         ];
 
         client
