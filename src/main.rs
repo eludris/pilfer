@@ -34,7 +34,6 @@ use tui::{
 use ui::ui;
 
 pub const REST_URL: &str = "https://eludris.tooty.xyz/";
-pub const GATEWAY_URL: &str = "wss://eludris.tooty.xyz/ws/";
 pub const PILFER_APP_ID: &str = "1028728489165193247";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -155,6 +154,7 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     tokio::spawn(handle_gateway(
+        info.pandemonium_url,
         messages,
         focused,
         #[cfg(target_os = "linux")]

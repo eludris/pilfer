@@ -1,5 +1,4 @@
 use std::{
-    env,
     sync::{atomic::AtomicBool, Arc, Mutex},
     time::Duration,
 };
@@ -13,12 +12,10 @@ use tokio::time;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 use tui::style::{Color, Style};
 
-use crate::{
-    models::{PilferMessage, SystemMessage},
-    GATEWAY_URL,
-};
+use crate::models::{PilferMessage, SystemMessage};
 
 pub async fn handle_gateway(
+    gateway_url: String,
     messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
     focused: Arc<AtomicBool>,
     #[cfg(target_os = "linux")] notification: Arc<Mutex<Option<NotificationHandle>>>,
@@ -26,13 +23,11 @@ pub async fn handle_gateway(
 ) {
     let mut wait = 0;
     loop {
-        let gateway_url = env::var("GATEWAY_URL").unwrap_or_else(|_| GATEWAY_URL.to_string());
-
         if wait > 0 {
             time::sleep(Duration::from_secs(wait)).await;
         }
 
-        let socket = match connect_async(gateway_url).await {
+        let socket = match connect_async(&gateway_url).await {
             Ok((socket, _)) => socket,
             Err(err) => {
                 if wait < 64 {
