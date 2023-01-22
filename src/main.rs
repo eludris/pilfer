@@ -247,7 +247,7 @@ async fn handle_request(
         Ok(res) => match res.json::<MessageResponse>().await {
             Ok(resp) => match resp {
                 MessageResponse::Error(resp) => match resp.data {
-                    Some(ErrorData::RatelimitedError(err)) => messages.lock().unwrap().push((
+                    Some(ErrorData::RateLimitedError(err)) => messages.lock().unwrap().push((
                         PilferMessage::System(SystemMessage {
                             content: format!(
                                 "System: You've been ratelimited, try in {}s",

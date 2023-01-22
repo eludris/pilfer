@@ -12,7 +12,7 @@ To use pilfer either download a binary from the releases page or building it
 locally with
 
 ```sh
-cargo install --git https://github.com/Eludris/pilfer.git
+cargo install pilfer
 ```
 
 Pilfer defaults to using @ooliver1's Eludris instance located at <https://eludris.tooty.xyz/>,

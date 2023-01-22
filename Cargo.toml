@@ -1,7 +1,18 @@
 [package]
 name = "pilfer"
-version = "0.3.0"
+version = "0.3.2"
 edition = "2021"
+license = "MIT"
+description = "A simple CLI frontend for Eludris"
+homepage = "https://github.com/eludris/pilfer"
+repository = "https://github.com/eludris/pilfer"
+readme = "README.md"
+categories = [
+    "command-line-interface",
+    "web-programming::http-client",
+    "web-programming::websocket",
+]
+keywords = ["eludris"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,7 +25,7 @@ notify-rust = "4.5.10"
 reqwest = { version = "0.11.11", features = ["json"] }
 serde = { version = "1.0.144", features = ["derive"] }
 serde_json = "1.0.85"
-todel = { git = "https://github.com/eludris/eludris", version = "0.3.1" }
+todel = { git = "https://github.com/eludris/eludris", version = "0.3.2" }
 tokio = { version = "1.20.1", features = ["macros", "rt-multi-thread", "time"] }
 tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
 tui = "0.19.0"
