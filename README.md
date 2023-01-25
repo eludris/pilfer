@@ -21,6 +21,9 @@ Pilfer is also available on the [AUR](https://aur.archlinux.org/packages/pilfer)
 <your-favourite-aur-helper> -S pilfer
 ```
 
+You can *also* yoink the precompiled binaries from the [releases page](https://github.com/eludris/pilfer/releases/latest)
+of this repository.
+
 Pilfer defaults to using @ooliver1's Eludris instance located at <https://eludris.tooty.xyz/>,
 to change that overwrite the `REST_URL` environment variable.
 
