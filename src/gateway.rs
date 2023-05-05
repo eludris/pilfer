@@ -119,9 +119,12 @@ pub async fn handle_gateway(
                 }
                 WsMessage::Close(frame) => {
                     if let Some(frame) = frame {
+                        if wait < 64 {
+                            wait *= 2;
+                        }
                         messages.lock().unwrap().push((
                             PilferMessage::System(SystemMessage {
-                                content: format!("{}, retrying", frame.reason),
+                                content: format!("{}, retrying in {}s", frame.reason, wait),
                             }),
                             Style::default().fg(Color::Red),
                         ))
