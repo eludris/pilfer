@@ -86,7 +86,7 @@ async fn main() -> Result<(), anyhow::Error> {
         }),
     };
 
-    let rest_url = env::var("REST_URL").unwrap_or_else(|_| REST_URL.to_string());
+    let rest_url = env::var("INSTANCE_URL").unwrap_or_else(|_| REST_URL.to_string());
     let http_client = Client::new();
     let info: InstanceInfo = http_client
         .get(&rest_url)

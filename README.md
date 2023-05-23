@@ -25,7 +25,7 @@ You can *also* yoink the precompiled binaries from the [releases page](https://g
 of this repository.
 
 Pilfer defaults to using @ooliver1's Eludris instance located at <https://eludris.tooty.xyz/>,
-to change that overwrite the `REST_URL` environment variable.
+to change that overwrite the `INSTANCE_URL` environment variable.
 
 You can also define a default name using the `PILFER_NAME` environment variable,
 it has to be > 1 characters < 33 characters.
