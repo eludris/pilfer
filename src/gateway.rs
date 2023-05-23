@@ -50,25 +50,23 @@ pub async fn handle_gateway(
         let (mut tx, mut rx) = socket.split();
         let ping;
         loop {
-            if let Some(Ok(msg)) = rx.next().await {
-                if let WsMessage::Text(msg) = msg {
-                    if let Ok(ServerPayload::Hello {
-                        heartbeat_interval, ..
-                    }) = serde_json::from_str(&msg)
-                    {
-                        // Handle ping-pong loop
-                        ping = tokio::spawn(async move {
-                            while let Ok(()) = tx
-                                .send(WsMessage::Text(
-                                    serde_json::to_string(&ClientPayload::Ping).unwrap(),
-                                ))
-                                .await
-                            {
-                                time::sleep(Duration::from_secs(heartbeat_interval)).await;
-                            }
-                        });
-                        break;
-                    }
+            if let Some(Ok(WsMessage::Text(msg))) = rx.next().await {
+                if let Ok(ServerPayload::Hello {
+                    heartbeat_interval, ..
+                }) = serde_json::from_str(&msg)
+                {
+                    // Handle ping-pong loop
+                    ping = tokio::spawn(async move {
+                        while let Ok(()) = tx
+                            .send(WsMessage::Text(
+                                serde_json::to_string(&ClientPayload::Ping).unwrap(),
+                            ))
+                            .await
+                        {
+                            time::sleep(Duration::from_secs(heartbeat_interval)).await;
+                        }
+                    });
+                    break;
                 }
             }
         }
