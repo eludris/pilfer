@@ -1,6 +1,6 @@
 [package]
 name = "pilfer"
-version = "0.3.2"
+version = "0.3.3"
 edition = "2021"
 license = "MIT"
 description = "A simple TUI frontend for Eludris"
@@ -25,7 +25,7 @@ notify-rust = "4.5.10"
 reqwest = { version = "0.11.11", features = ["json"] }
 serde = { version = "1.0.144", features = ["derive"] }
 serde_json = "1.0.85"
-todel = { git = "https://github.com/eludris/eludris", version = "0.3.2" }
+todel = { git = "https://github.com/eludris/eludris", version = "0.3.3" }
 tokio = { version = "1.20.1", features = ["macros", "rt-multi-thread", "time"] }
 tokio-tungstenite = { version = "0.17.2", features = ["native-tls"] }
 tui = "0.19.0"
