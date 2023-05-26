@@ -1054,6 +1054,7 @@ dependencies = [
  "discord-rich-presence",
  "futures",
  "notify-rust",
+ "rand",
  "reqwest",
  "serde",
  "serde_json",

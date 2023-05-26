@@ -7,6 +7,7 @@ use futures::{SinkExt, StreamExt};
 use notify_rust::Notification;
 #[cfg(target_os = "linux")]
 use notify_rust::NotificationHandle;
+use rand::{rngs::StdRng, Rng, SeedableRng};
 use todel::models::{ClientPayload, Message, ServerPayload};
 use tokio::time;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
@@ -21,6 +22,7 @@ pub async fn handle_gateway(
     #[cfg(target_os = "linux")] notification: Arc<Mutex<Option<NotificationHandle>>>,
     name: String,
 ) {
+    let mut rng = StdRng::from_entropy();
     let mut wait = 0;
     loop {
         if wait > 0 {
@@ -56,6 +58,7 @@ pub async fn handle_gateway(
                 }) = serde_json::from_str(&msg)
                 {
                     // Handle ping-pong loop
+                    time::sleep(Duration::from_secs(rng.gen_range(0..heartbeat_interval))).await;
                     ping = tokio::spawn(async move {
                         while let Ok(()) = tx
                             .send(WsMessage::Text(
