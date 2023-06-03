@@ -1,8 +1,9 @@
 #![allow(clippy::uninlined_format_args)]
-
 mod gateway;
 mod models;
 mod ui;
+mod user;
+mod utils;
 
 use crossterm::{
     cursor::{CursorShape, SetCursorShape},
@@ -21,7 +22,7 @@ use serde_json::json;
 use std::{
     env,
     error::Error,
-    io::{self, Write},
+    io,
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -57,34 +58,12 @@ async fn main() -> Result<(), anyhow::Error> {
     }));
     let mut stdout = io::stdout();
 
-    // Get a name that complies with Eludris' 2-32 name character limit
-    let name = match env::args().nth(1) {
-        Some(name) => {
-            if name == "-v" || name == "--version" {
-                println!("Version: {}", VERSION);
-                return Ok(());
-            } else if name.len() < 2 || name.len() > 32 {
-                anyhow::bail!("Invalid name supplied, your name has to be between 2 and 32 characters long, try again!");
-            }
-            name
+    if let Some(flag) = env::args().nth(1) {
+        if flag == "-v" || flag == "--version" {
+            println!("Version: {}", VERSION);
+            return Ok(());
         }
-        None => env::var("PILFER_NAME").unwrap_or_else(|_| loop {
-            print!("What's your name? > ");
-            stdout.flush().unwrap();
-
-            let mut name = String::new();
-
-            io::stdin().read_line(&mut name).unwrap();
-
-            let name = name.trim();
-
-            if name.len() <= 32 && name.len() >= 2 {
-                break name.to_string();
-            }
-
-            eprintln!("Your name has to be between 2 and 32 characters long, try again!");
-        }),
-    };
+    }
 
     let rest_url = env::var("INSTANCE_URL").unwrap_or_else(|_| REST_URL.to_string());
     let http_client = Client::new();
@@ -92,10 +71,12 @@ async fn main() -> Result<(), anyhow::Error> {
         .get(&rest_url)
         .send()
         .await
-        .expect("Can not connect to Oprish")
+        .expect("Cannot connect to Oprish")
         .json()
         .await
         .expect("Server returned a malformed info response");
+
+    let (token, name) = user::get_token(&info, &http_client).await?;
 
     // Discord rich presence stuff
     let mut client = DiscordIpcClient::new(PILFER_APP_ID).unwrap();
@@ -162,6 +143,7 @@ async fn main() -> Result<(), anyhow::Error> {
         #[cfg(target_os = "linux")]
         notification,
         name,
+        token,
     ));
 
     let res = run_app(&mut terminal, app);

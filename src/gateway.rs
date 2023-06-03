@@ -22,6 +22,7 @@ pub async fn handle_gateway(
     focused: Arc<AtomicBool>,
     #[cfg(target_os = "linux")] notification: Arc<Mutex<Option<NotificationHandle>>>,
     name: String,
+    token: String,
 ) {
     let rng = Arc::new(AsyncMutex::new(StdRng::from_entropy()));
     let mut wait = 0;
@@ -54,27 +55,59 @@ pub async fn handle_gateway(
         let ping;
         loop {
             if let Some(Ok(WsMessage::Text(msg))) = rx.next().await {
-                if let Ok(ServerPayload::Hello {
-                    heartbeat_interval, ..
-                }) = serde_json::from_str(&msg)
-                {
-                    // Handle ping-pong loop
-                    let rng = Arc::clone(&rng);
-                    ping = tokio::spawn(async move {
-                        time::sleep(Duration::from_secs(
-                            rng.lock().await.gen_range(0..heartbeat_interval),
-                        ))
-                        .await;
-                        while let Ok(()) = tx
-                            .send(WsMessage::Text(
-                                serde_json::to_string(&ClientPayload::Ping).unwrap(),
-                            ))
-                            .await
-                        {
-                            time::sleep(Duration::from_secs(heartbeat_interval)).await;
+                if let Ok(msg) = serde_json::from_str(&msg) {
+                    match msg {
+                        ServerPayload::Hello {
+                            heartbeat_interval, ..
+                        } => {
+                            // Authenticate
+                            if let Err(err) = tx
+                                .send(WsMessage::Text(
+                                    serde_json::to_string(&ClientPayload::Authenticate(
+                                        token.clone(),
+                                    ))
+                                    .unwrap(),
+                                ))
+                                .await
+                            {
+                                messages.lock().unwrap().push((
+                                    PilferMessage::System(SystemMessage {
+                                        content: format!("Could not authenticate: {:?}", err),
+                                    }),
+                                    Style::default().fg(Color::Red),
+                                ));
+                                return;
+                            }
+
+                            // Handle ping-pong loop
+                            let rng = Arc::clone(&rng);
+                            ping = tokio::spawn(async move {
+                                time::sleep(Duration::from_secs(
+                                    rng.lock().await.gen_range(0..heartbeat_interval),
+                                ))
+                                .await;
+                                while let Ok(()) = tx
+                                    .send(WsMessage::Text(
+                                        serde_json::to_string(&ClientPayload::Ping).unwrap(),
+                                    ))
+                                    .await
+                                {
+                                    time::sleep(Duration::from_secs(heartbeat_interval)).await;
+                                }
+                            });
+                            break;
                         }
-                    });
-                    break;
+                        ServerPayload::RateLimit { wait } => {
+                            messages.lock().unwrap().push((
+                                PilferMessage::System(SystemMessage {
+                                    content: format!("Rate limited, waiting {}s", wait),
+                                }),
+                                Style::default().fg(Color::Red),
+                            ));
+                            time::sleep(Duration::from_secs(wait)).await;
+                        }
+                        _ => continue,
+                    }
                 }
             }
         }
