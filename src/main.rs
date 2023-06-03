@@ -143,10 +143,10 @@ async fn main() -> Result<(), anyhow::Error> {
         #[cfg(target_os = "linux")]
         notification,
         name,
-        token,
+        token.clone(),
     ));
 
-    let res = run_app(&mut terminal, app);
+    let res = run_app(&mut terminal, app, token);
 
     disable_raw_mode()?;
     execute!(
@@ -166,6 +166,7 @@ async fn main() -> Result<(), anyhow::Error> {
 fn run_app<B: Backend>(
     terminal: &mut Terminal<B>,
     mut app: AppContext,
+    token: String,
 ) -> Result<(), Box<dyn Error>> {
     loop {
         terminal.draw(|f| ui(f, &app))?;
@@ -189,9 +190,8 @@ fn run_app<B: Backend>(
                             let request = app
                                 .http_client
                                 .post(format!("{}/messages/", app.rest_url))
-                                .json(
-                                    &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
-                                );
+                                .header("Authorization", &token)
+                                .json(&json!({"content": app.input.drain(..).collect::<String>()}));
                             let messages = Arc::clone(&app.messages);
                             tokio::spawn(handle_request(request, messages));
                         }
