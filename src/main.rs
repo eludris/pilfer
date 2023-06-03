@@ -249,12 +249,12 @@ async fn handle_request(
         Ok(res) => match res.json::<MessageResponse>().await {
             Ok(resp) => match resp {
                 MessageResponse::Error(resp) => match resp {
-                    ErrorResponse::RateLimited { try_after, .. } => {
+                    ErrorResponse::RateLimited { retry_after, .. } => {
                         messages.lock().unwrap().push((
                             PilferMessage::System(SystemMessage {
                                 content: format!(
                                     "System: You've been ratelimited, try in {}s",
-                                    try_after / 1000
+                                    retry_after / 1000
                                 ),
                             }),
                             Style::default().fg(Color::Red),
