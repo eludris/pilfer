@@ -235,7 +235,7 @@ async fn handle_request(
                         messages.lock().unwrap().push((
                             PilferMessage::System(SystemMessage {
                                 content: format!(
-                                    "System: You've been ratelimited, try in {}s",
+                                    "System: You've been ratelimited, retry in {}s",
                                     retry_after / 1000
                                 ),
                             }),

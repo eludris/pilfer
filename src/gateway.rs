@@ -82,17 +82,17 @@ pub async fn handle_gateway(
                             // Handle ping-pong loop
                             let rng = Arc::clone(&rng);
                             ping = tokio::spawn(async move {
-                                time::sleep(Duration::from_secs(
+                                let dur = Duration::from_millis(
                                     rng.lock().await.gen_range(0..heartbeat_interval),
-                                ))
-                                .await;
+                                );
+                                time::sleep(dur).await;
                                 while let Ok(()) = tx
                                     .send(WsMessage::Text(
                                         serde_json::to_string(&ClientPayload::Ping).unwrap(),
                                     ))
                                     .await
                                 {
-                                    time::sleep(Duration::from_secs(heartbeat_interval)).await;
+                                    time::sleep(Duration::from_millis(heartbeat_interval)).await;
                                 }
                             });
                             break;
@@ -100,11 +100,11 @@ pub async fn handle_gateway(
                         ServerPayload::RateLimit { wait } => {
                             messages.lock().unwrap().push((
                                 PilferMessage::System(SystemMessage {
-                                    content: format!("Rate limited, waiting {}s", wait),
+                                    content: format!("Rate limited, waiting {}s", wait / 1000),
                                 }),
                                 Style::default().fg(Color::Red),
                             ));
-                            time::sleep(Duration::from_secs(wait)).await;
+                            time::sleep(Duration::from_millis(wait)).await;
                         }
                         _ => continue,
                     }
@@ -125,6 +125,15 @@ pub async fn handle_gateway(
                 WsMessage::Text(msg) => {
                     let msg: Message = match serde_json::from_str(&msg) {
                         Ok(ServerPayload::MessageCreate(msg)) => msg,
+                        Ok(ServerPayload::Authenticated) => {
+                            messages.lock().unwrap().push((
+                                PilferMessage::System(SystemMessage {
+                                    content: "Authenticated with Pandemonium!".to_string(),
+                                }),
+                                Style::default().fg(Color::Green),
+                            ));
+                            continue;
+                        }
                         _ => continue,
                     };
                     if !focused.load(std::sync::atomic::Ordering::Relaxed) {
