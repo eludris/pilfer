@@ -58,7 +58,8 @@ async fn main() -> Result<(), anyhow::Error> {
     }));
     let mut stdout = io::stdout();
 
-    if let Some(flag) = env::args().nth(1) {
+    let flag = env::args().nth(1);
+    if let Some(ref flag) = flag {
         if flag == "-v" || flag == "--version" {
             println!("Version: {}", VERSION);
             return Ok(());
@@ -77,6 +78,29 @@ async fn main() -> Result<(), anyhow::Error> {
         .expect("Server returned a malformed info response");
 
     let (token, name) = user::get_token(&info, &http_client).await?;
+
+    if flag == Some("--verify".to_string()) {
+        match env::args().nth(2) {
+            Some(code) => {
+                if !http_client
+                    .post(format!("{}/users/verify?code={}", info.oprish_url, code))
+                    .header("Authorization", &token)
+                    .send()
+                    .await
+                    .unwrap()
+                    .status()
+                    .is_success()
+                {
+                    println!("Verification failed");
+                    std::process::exit(1);
+                }
+            }
+            None => {
+                println!("Usage: pilfer --verify <code>");
+                std::process::exit(1);
+            }
+        };
+    };
 
     // Discord rich presence stuff
     let mut client = DiscordIpcClient::new(PILFER_APP_ID).unwrap();
