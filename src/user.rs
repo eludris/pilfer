@@ -9,60 +9,10 @@ use directories::ProjectDirs;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use todel::models::{InstanceInfo, SessionCreated};
+use todel::models::{InstanceInfo, SessionCreated, User};
 use tokio::fs;
 
-use crate::prompt;
-
-/*
-curl \
-  --json '{
-  "indentifier": "yendri"
-  "password": "authentícame por favor"
-  "platform": "linux",
-  "client":"pilfer"
-}' \
-  https://api.eludris.gay/sessions
-{
-  "token": "",
-  "session": {
-    "indentifier": "yendri",
-    "password": "authentícame por favor",
-    "platform": "linux",
-    "client": "pilfer"
-  }
-}
-
-curl \
-  --json '{
-  "username": "yendri",
-  "email": "yendri@llamoyendri.io",
-  "password": "autentícame por favor"
-}' \
-  https://api.eludris.gay/users
-
-{
-  "id": 48615849987333,
-  "username": "yendri",
-  "social_credit": 0,
-  "badges": 0,
-  "permissions": 0
-}
-
-"do you already have an account? (Y/n)" for login/signup
-hide password input
-
-ask for login/signup initially
-*/
-
-// print!("What's your name? > ");
-// stdout.flush().unwrap();
-
-// let mut name = String::new();
-
-// io::stdin().read_line(&mut name).unwrap();
-
-// let name = name.trim();
+use crate::{models::Response, prompt};
 
 const CLIENT_NAME: &str = "pilfer";
 const PLATFORM_NAME: &str = env::consts::OS;
@@ -116,7 +66,7 @@ pub async fn get_token(
     loop {
         match input {
             "y" | "Y" | "" => break login(info, http_client, config_path).await,
-            // "n" | "N" => signup(info, http_client).await,
+            "n" | "N" => break signup(info, http_client, config_path).await,
             _ => {
                 println!("Invalid input");
             }
@@ -129,10 +79,54 @@ async fn login(
     http_client: &Client,
     config_path: PathBuf,
 ) -> Result<(String, String), anyhow::Error> {
-    let username = prompt!("Username > ");
+    let username = prompt!("Username/Email > ");
     let password = rpassword::prompt_password("Password > ").unwrap();
 
     create_session(info, http_client, username, password, config_path).await
+}
+
+async fn signup(
+    info: &InstanceInfo,
+    http_client: &Client,
+    config_path: PathBuf,
+) -> Result<(String, String), anyhow::Error> {
+    loop {
+        let username = prompt!("Username > ");
+        let email = prompt!("Email > ");
+        let password = rpassword::prompt_password("Password > ").unwrap();
+
+        let user = json!({
+            "username": username,
+            "email": email,
+            "password": password,
+        });
+
+        let user = http_client
+            .post(format!("{}/users", info.oprish_url))
+            .json(&user)
+            .send()
+            .await
+            .expect("Can not connect to Oprish")
+            .json::<Response<User>>()
+            .await?;
+
+        match user {
+            Response::Success(_) => {
+                println!("Account created successfully!");
+                if info.email_address.is_some() {
+                    println!("Please check your email to verify your account.");
+                }
+                println!("You can now login with your username and password.");
+                prompt!("Press enter to continue > ");
+                break create_session(info, http_client, username, password, config_path).await;
+            }
+            Response::Error(error) => {
+                // TODO: Nicer handling.
+                println!("Could not create account");
+                println!("{:?}", error);
+            }
+        }
+    }
 }
 
 async fn create_session(

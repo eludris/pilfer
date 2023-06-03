@@ -16,7 +16,7 @@ use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
 };
 use gateway::handle_gateway;
-use models::{AppContext, MessageResponse, PilferMessage, SystemMessage};
+use models::{AppContext, PilferMessage, Response, SystemMessage};
 use reqwest::{Client, RequestBuilder};
 use serde_json::json;
 use std::{
@@ -28,7 +28,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
     vec,
 };
-use todel::models::{ErrorResponse, InstanceInfo};
+use todel::models::{ErrorResponse, InstanceInfo, Message};
 use tui::{
     backend::{Backend, CrosstermBackend},
     style::{Color, Style},
@@ -228,9 +228,9 @@ async fn handle_request(
 ) {
     let res = request.send().await;
     match res {
-        Ok(res) => match res.json::<MessageResponse>().await {
+        Ok(res) => match res.json::<Response<Message>>().await {
             Ok(resp) => match resp {
-                MessageResponse::Error(resp) => match resp {
+                Response::Error(resp) => match resp {
                     ErrorResponse::RateLimited { retry_after, .. } => {
                         messages.lock().unwrap().push((
                             PilferMessage::System(SystemMessage {
@@ -249,7 +249,7 @@ async fn handle_request(
                         Style::default().fg(Color::Red),
                     )),
                 },
-                MessageResponse::Success(_) => {}
+                Response::Success(_) => {}
             },
             Err(_) => messages.lock().unwrap().push((
                 PilferMessage::System(SystemMessage {

@@ -11,8 +11,8 @@ use tui::style::Style;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MessageResponse {
-    Success(Message),
+pub enum Response<T> {
+    Success(T),
     Error(ErrorResponse),
 }
 
