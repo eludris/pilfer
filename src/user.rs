@@ -9,7 +9,7 @@ use directories::ProjectDirs;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use todel::models::{InstanceInfo, SessionCreated, User};
+use todel::models::{ErrorResponse, InstanceInfo, SessionCreated, User};
 use tokio::fs;
 
 use crate::{models::Response, prompt};
@@ -120,10 +120,19 @@ async fn signup(
                 prompt!("Press enter to continue > ");
                 break create_session(info, http_client, username, password, config_path).await;
             }
+            Response::Error(ErrorResponse::Conflict { item, .. }) => {
+                eprintln!("Could not create account");
+                eprintln!("{} already exists", item);
+            }
+            Response::Error(ErrorResponse::Validation {
+                value_name, info, ..
+            }) => {
+                eprintln!("Could not create account");
+                eprintln!("{}: {}", value_name, info);
+            }
             Response::Error(error) => {
-                // TODO: Nicer handling.
-                println!("Could not create account");
-                println!("{:?}", error);
+                eprintln!("Could not create account");
+                eprintln!("{:?}", error);
             }
         }
     }
