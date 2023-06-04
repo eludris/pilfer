@@ -152,15 +152,31 @@ async fn create_session(
         "client": CLIENT_NAME
     });
 
-    let token = http_client
+    let token = match http_client
         .post(format!("{}/sessions", info.oprish_url))
         .json(&session)
         .send()
         .await
         .expect("Can not connect to Oprish")
-        .json::<SessionCreated>()
+        .json::<Response<SessionCreated>>()
         .await?
-        .token;
+    {
+        Response::Success(session) => session.token,
+        Response::Error(ErrorResponse::NotFound { .. }) => {
+            return Err(anyhow::anyhow!(
+                "Could not create session, user {} not found",
+                username
+            ))
+        }
+        Response::Error(ErrorResponse::Unauthorized { .. }) => {
+            return Err(anyhow::anyhow!(
+                "Could not create session, invalid password"
+            ))
+        }
+        Response::Error(error) => {
+            return Err(anyhow::anyhow!("Could not create session: {:?}", error));
+        }
+    };
 
     let config = Config {
         session: token.clone(),
