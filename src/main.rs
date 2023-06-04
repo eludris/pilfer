@@ -5,6 +5,7 @@ mod ui;
 mod user;
 mod utils;
 
+use anyhow::anyhow;
 use crossterm::{
     cursor::{CursorShape, SetCursorShape},
     event::{self, DisableFocusChange, EnableFocusChange, Event, KeyCode, KeyModifiers},
@@ -82,22 +83,25 @@ async fn main() -> Result<(), anyhow::Error> {
     if flag == Some("--verify".to_string()) {
         match env::args().nth(2) {
             Some(code) => {
-                if !http_client
+                let res = http_client
                     .post(format!("{}/users/verify?code={}", info.oprish_url, code))
                     .header("Authorization", &token)
                     .send()
                     .await
-                    .unwrap()
-                    .status()
-                    .is_success()
-                {
-                    println!("Verification failed");
-                    std::process::exit(1);
+                    .expect("Can not connect to Oprish");
+                if res.status().is_success() {
+                    println!("Successfully verified");
+                } else {
+                    match res.json::<ErrorResponse>().await? {
+                        ErrorResponse::Validation {
+                            value_name, info, ..
+                        } => return Err(anyhow!("{}: {}", value_name, info)),
+                        _ => return Err(anyhow!("Could not verify: {:?}", info)),
+                    }
                 }
             }
             None => {
-                println!("Usage: pilfer --verify <code>");
-                std::process::exit(1);
+                return Err(anyhow!("Usage: pilfer --verify <code>"));
             }
         };
     };
