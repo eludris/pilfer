@@ -1,3 +1,4 @@
+#![allow(unreachable_code)]
 #![allow(clippy::uninlined_format_args)]
 mod gateway;
 mod models;
@@ -255,6 +256,7 @@ async fn handle_request(
     messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
 ) {
     let res = request.send().await;
+
     match res {
         Ok(res) => match res.json::<Response<Message>>().await {
             Ok(resp) => match resp {
@@ -279,9 +281,12 @@ async fn handle_request(
                 },
                 Response::Success(_) => {}
             },
-            Err(_) => messages.lock().unwrap().push((
+            Err(err) => messages.lock().unwrap().push((
                 PilferMessage::System(SystemMessage {
-                    content: "System: Couldn't send message: got invalid response".to_string(),
+                    content: format!(
+                        "System: Couldn't send message: got invalid response: {:?}",
+                        err
+                    ),
                 }),
                 Style::default().fg(Color::Red),
             )),

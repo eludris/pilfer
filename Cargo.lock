@@ -1760,7 +1760,7 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 [[package]]
 name = "todel"
 version = "0.3.3"
-source = "git+https://github.com/eludris/eludris?rev=b088468#b088468da40b8c013fc979c58489a869526bd97c"
+source = "git+https://github.com/eludris/eludris?rev=3a953b7#3a953b77ade19f6f92c32d3f859912f50569b16a"
 dependencies = [
  "serde",
  "serde_with",
@@ -1771,7 +1771,7 @@ dependencies = [
 [[package]]
 name = "todel_codegen"
 version = "0.3.3"
-source = "git+https://github.com/eludris/eludris?rev=b088468#b088468da40b8c013fc979c58489a869526bd97c"
+source = "git+https://github.com/eludris/eludris?rev=3a953b7#3a953b77ade19f6f92c32d3f859912f50569b16a"
 dependencies = [
  "quote",
  "serde",

@@ -125,7 +125,7 @@ pub async fn handle_gateway(
                 WsMessage::Text(msg) => {
                     let msg: Message = match serde_json::from_str(&msg) {
                         Ok(ServerPayload::MessageCreate(msg)) => msg,
-                        Ok(ServerPayload::Authenticated) => {
+                        Ok(ServerPayload::Authenticated { .. }) => {
                             messages.lock().unwrap().push((
                                 PilferMessage::System(SystemMessage {
                                     content: "Authenticated with Pandemonium!".to_string(),
@@ -144,13 +144,13 @@ pub async fn handle_gateway(
                                 Some(notif) => {
                                     notif
                                         .summary(&format!("New Pilfer message from {}", msg.author))
-                                        .body(&msg.content.to_string());
+                                        .body(&msg.message.content.to_string());
                                     notif.update()
                                 }
                                 None => {
                                     *notif = match Notification::new()
                                         .summary(&format!("New Pilfer message from {}", msg.author))
-                                        .body(&msg.content)
+                                        .body(&msg.message.content)
                                         .show()
                                     {
                                         Ok(notif) => Some(notif),
@@ -167,7 +167,12 @@ pub async fn handle_gateway(
                             .ok();
                     }
                     // Highlight the message if your name got mentioned
-                    let style = if msg.content.to_lowercase().contains(&name.to_lowercase()) {
+                    let style = if msg
+                        .message
+                        .content
+                        .to_lowercase()
+                        .contains(&name.to_lowercase())
+                    {
                         Style::default().fg(Color::Yellow)
                     } else {
                         Style::default()
@@ -176,7 +181,7 @@ pub async fn handle_gateway(
                     messages
                         .lock()
                         .unwrap()
-                        .push((PilferMessage::Eludris(msg), style));
+                        .push((PilferMessage::Eludris(Box::new(msg)), style));
                 }
                 WsMessage::Close(frame) => {
                     if let Some(frame) = frame {

@@ -25,14 +25,14 @@ pub struct SystemMessage {
 
 #[derive(Debug)]
 pub enum PilferMessage {
-    Eludris(Message),
+    Eludris(Box<Message>),
     System(SystemMessage),
 }
 
 impl Display for PilferMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PilferMessage::Eludris(msg) => write!(f, "[{}]: {}", msg.author, msg.content),
+            PilferMessage::Eludris(msg) => write!(f, "[{}]: {}", msg.author, msg.message.content),
             PilferMessage::System(msg) => write!(f, "{}", msg.content),
         }
     }
