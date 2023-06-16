@@ -219,7 +219,7 @@ pub async fn handle_gateway(
                         #[cfg(not(target_os = "linux"))]
                         Notification::new()
                             .summary(&format!("New Pilfer message from {}", msg.author))
-                            .body(&msg.content)
+                            .body(&msg.message.content)
                             .show()
                             .ok();
                     }
