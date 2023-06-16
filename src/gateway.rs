@@ -18,6 +18,8 @@ use tui::style::{Color, Style};
 
 use crate::models::{PilferMessage, Response, SystemMessage};
 
+// It's either this or excessive amounts of arcs and mutexes over AppContext.
+#[allow(clippy::too_many_arguments)]
 pub async fn handle_gateway(
     rest_url: String,
     gateway_url: String,
@@ -153,6 +155,12 @@ pub async fn handle_gateway(
                         }
                         Ok(ServerPayload::PresenceUpdate { user_id, status }) => {
                             let mut users = users.lock().await;
+
+                            if status.status_type == StatusType::Offline {
+                                users.remove(&user_id);
+                                continue;
+                            };
+
                             if let Some(user) = users.get_mut(&user_id) {
                                 user.status = status;
                             } else {
@@ -179,9 +187,6 @@ pub async fn handle_gateway(
                                         continue;
                                     }
                                 };
-                                if user.status.status_type == StatusType::Offline {
-                                    users.remove(&user.id);
-                                }
                                 users.insert(user.id, user);
                             }
                             continue;
