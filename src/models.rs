@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
@@ -6,7 +7,8 @@ use std::sync::{Arc, Mutex};
 use notify_rust::NotificationHandle;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use todel::models::{ErrorResponse, Message};
+use todel::models::{ErrorResponse, Message, User};
+use tokio::sync::Mutex as AsyncMutex;
 use tui::style::Style;
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -45,8 +47,10 @@ pub struct AppContext {
     pub name: String,
     /// Received messages
     pub messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
+    /// Online users
+    pub users: Arc<AsyncMutex<HashMap<u64, User>>>,
     /// Reqwest HttpClient
-    pub http_client: Client,
+    pub http_client: Arc<Client>,
     /// Oprish URL
     pub rest_url: String,
     /// Whether the user is currently focused.

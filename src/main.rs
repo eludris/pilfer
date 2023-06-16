@@ -22,6 +22,7 @@ use models::{AppContext, PilferMessage, Response, SystemMessage};
 use reqwest::{Client, RequestBuilder};
 use serde_json::json;
 use std::{
+    collections::HashMap,
     env,
     error::Error,
     io,
@@ -31,6 +32,7 @@ use std::{
     vec,
 };
 use todel::models::{ErrorResponse, InstanceInfo, Message};
+use tokio::{sync::Mutex as AsyncMutex, task::spawn_blocking};
 use tui::{
     backend::{Backend, CrosstermBackend},
     style::{Color, Style},
@@ -69,7 +71,7 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     let rest_url = env::var("INSTANCE_URL").unwrap_or_else(|_| REST_URL.to_string());
-    let http_client = Client::new();
+    let http_client = Arc::new(Client::new());
     let info: InstanceInfo = http_client
         .get(&rest_url)
         .send()
@@ -146,9 +148,10 @@ async fn main() -> Result<(), anyhow::Error> {
         SetCursorShape(CursorShape::Line),
     )?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let terminal = Terminal::new(backend)?;
 
     let messages = Arc::new(Mutex::new(vec![]));
+    let users = Arc::new(AsyncMutex::new(HashMap::new()));
 
     let focused = Arc::new(AtomicBool::new(true));
     #[cfg(target_os = "linux")]
@@ -158,7 +161,8 @@ async fn main() -> Result<(), anyhow::Error> {
         input: String::new(),
         name: name.clone(),
         messages: Arc::clone(&messages),
-        http_client,
+        users: Arc::clone(&users),
+        http_client: Arc::clone(&http_client),
         rest_url,
         focused: Arc::clone(&focused),
         #[cfg(target_os = "linux")]
@@ -166,8 +170,11 @@ async fn main() -> Result<(), anyhow::Error> {
     };
 
     tokio::spawn(handle_gateway(
+        info.oprish_url,
         info.pandemonium_url,
+        Arc::clone(&http_client),
         messages,
+        users,
         focused,
         #[cfg(target_os = "linux")]
         notification,
@@ -175,7 +182,8 @@ async fn main() -> Result<(), anyhow::Error> {
         token.clone(),
     ));
 
-    let res = run_app(&mut terminal, app, token);
+    let res = spawn_blocking(move || run_app(terminal, app, token)).await;
+    let (mut terminal, res) = res.unwrap();
 
     disable_raw_mode()?;
     execute!(
@@ -193,11 +201,11 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
+    mut terminal: Terminal<B>,
     mut app: AppContext,
     token: String,
-) -> Result<(), Box<dyn Error>> {
-    loop {
+) -> (Terminal<B>, Result<(), Box<dyn Error + Send + Sync>>) {
+    let mut logic = || -> Result<bool, Box<dyn Error + Send + Sync>> {
         terminal.draw(|f| ui(f, &app))?;
 
         if event::poll(Duration::from_millis(100))? {
@@ -229,7 +237,7 @@ fn run_app<B: Backend>(
                         // Keybingings go here
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             match c {
-                                'c' => break,
+                                'c' => return Ok(false),
                                 'l' => app.messages.lock().unwrap().clear(),
                                 ' ' => app.input.push('\n'),
                                 _ => {}
@@ -245,10 +253,20 @@ fn run_app<B: Backend>(
                 },
                 _ => {}
             }
+        };
+
+        return Ok(true);
+    };
+
+    loop {
+        match logic() {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(err) => return (terminal, Err(err)),
         }
     }
 
-    Ok(())
+    (terminal, Ok(()))
 }
 
 async fn handle_request(

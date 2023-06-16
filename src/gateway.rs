@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     sync::{atomic::AtomicBool, Arc, Mutex},
     time::Duration,
 };
@@ -8,17 +9,21 @@ use notify_rust::Notification;
 #[cfg(target_os = "linux")]
 use notify_rust::NotificationHandle;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use todel::models::{ClientPayload, Message, ServerPayload};
+use reqwest::Client;
+use todel::models::{ClientPayload, Message, ServerPayload, StatusType, User};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
 use tui::style::{Color, Style};
 
-use crate::models::{PilferMessage, SystemMessage};
+use crate::models::{PilferMessage, Response, SystemMessage};
 
 pub async fn handle_gateway(
+    rest_url: String,
     gateway_url: String,
+    http_client: Arc<Client>,
     messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
+    users: Arc<AsyncMutex<HashMap<u64, User>>>,
     focused: Arc<AtomicBool>,
     #[cfg(target_os = "linux")] notification: Arc<Mutex<Option<NotificationHandle>>>,
     name: String,
@@ -125,13 +130,60 @@ pub async fn handle_gateway(
                 WsMessage::Text(msg) => {
                     let msg: Message = match serde_json::from_str(&msg) {
                         Ok(ServerPayload::MessageCreate(msg)) => msg,
-                        Ok(ServerPayload::Authenticated { .. }) => {
+                        Ok(ServerPayload::Authenticated {
+                            user,
+                            users: online_users,
+                        }) => {
                             messages.lock().unwrap().push((
                                 PilferMessage::System(SystemMessage {
                                     content: "Authenticated with Pandemonium!".to_string(),
                                 }),
                                 Style::default().fg(Color::Green),
                             ));
+                            let mut users = users.lock().await;
+                            users.insert(user.id, user);
+                            users.extend(online_users.into_iter().map(|user| (user.id, user)));
+                            continue;
+                        }
+                        Ok(ServerPayload::UserUpdate(user)) => {
+                            if user.status.status_type != StatusType::Offline {
+                                users.lock().await.insert(user.id, user);
+                            }
+                            continue;
+                        }
+                        Ok(ServerPayload::PresenceUpdate { user_id, status }) => {
+                            let mut users = users.lock().await;
+                            if let Some(user) = users.get_mut(&user_id) {
+                                user.status = status;
+                            } else {
+                                let user = match http_client
+                                    .get(format!("{}/users/{}", rest_url, user_id))
+                                    .send()
+                                    .await
+                                    .expect("Can not connect to Oprish")
+                                    .json::<Response<User>>()
+                                    .await
+                                    .unwrap()
+                                {
+                                    Response::Success(user) => user,
+                                    Response::Error(err) => {
+                                        messages.lock().unwrap().push((
+                                            PilferMessage::System(SystemMessage {
+                                                content: format!(
+                                                    "Could not get user {}: {}",
+                                                    user_id, err
+                                                ),
+                                            }),
+                                            Style::default().fg(Color::Red),
+                                        ));
+                                        continue;
+                                    }
+                                };
+                                if user.status.status_type == StatusType::Offline {
+                                    users.remove(&user.id);
+                                }
+                                users.insert(user.id, user);
+                            }
                             continue;
                         }
                         _ => continue,
