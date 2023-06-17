@@ -89,10 +89,10 @@ pub async fn handle_gateway(
                             // Handle ping-pong loop
                             let rng = Arc::clone(&rng);
                             ping = tokio::spawn(async move {
-                                let dur = Duration::from_millis(
+                                time::sleep(Duration::from_millis(
                                     rng.lock().await.gen_range(0..heartbeat_interval),
-                                );
-                                time::sleep(dur).await;
+                                ))
+                                .await;
                                 while let Ok(()) = tx
                                     .send(WsMessage::Text(
                                         serde_json::to_string(&ClientPayload::Ping).unwrap(),

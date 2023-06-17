@@ -1,4 +1,3 @@
-#![allow(unreachable_code)]
 #![allow(clippy::uninlined_format_args)]
 mod gateway;
 mod models;
@@ -161,7 +160,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let messages = Arc::new(Mutex::new(vec![]));
     let users = Arc::new(AsyncMutex::new(HashMap::new()));
 
-    let focused: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
+    let focused = Arc::new(AtomicBool::new(true));
     #[cfg(target_os = "linux")]
     let notification = Arc::new(Mutex::new(None));
 
@@ -191,8 +190,9 @@ async fn main() -> Result<(), anyhow::Error> {
         token.clone(),
     ));
 
-    let res = spawn_blocking(move || run_app(terminal, app, token)).await;
-    let (mut terminal, res) = res.unwrap();
+    let (mut terminal, res) = spawn_blocking(move || run_app(terminal, app, token))
+        .await
+        .unwrap();
 
     disable_raw_mode()?;
     execute!(
