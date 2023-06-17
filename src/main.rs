@@ -31,7 +31,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
     vec,
 };
-use todel::models::{ErrorResponse, InstanceInfo, Message};
+use todel::models::{ErrorResponse, InstanceInfo, Message, MessageCreate};
 use tokio::{sync::Mutex as AsyncMutex, task::spawn_blocking};
 use tui::{
     backend::{Backend, CrosstermBackend},
@@ -221,7 +221,15 @@ fn run_app<B: Backend>(
                                 .http_client
                                 .post(format!("{}/messages/", app.rest_url))
                                 .header("Authorization", &token)
-                                .json(&json!({"content": app.input.lock().unwrap().drain(..).collect::<String>()}));
+                                .json(&MessageCreate {
+                                    content: app
+                                        .input
+                                        .lock()
+                                        .unwrap()
+                                        .drain(..)
+                                        .collect::<String>(),
+                                    disguise: None,
+                                });
                             tokio::spawn(handle_request(request, Arc::clone(&app)));
                         }
                     }

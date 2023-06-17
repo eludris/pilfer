@@ -8,8 +8,7 @@ use anyhow::{bail, Context};
 use directories::ProjectDirs;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
-use todel::models::{ErrorResponse, InstanceInfo, SessionCreated, User};
+use todel::models::{ErrorResponse, InstanceInfo, SessionCreate, SessionCreated, User, UserCreate};
 use tokio::fs;
 
 use crate::{models::Response, prompt};
@@ -95,15 +94,13 @@ async fn signup(
         let email = prompt!("Email > ");
         let password = rpassword::prompt_password("Password > ").unwrap();
 
-        let user = json!({
-            "username": username,
-            "email": email,
-            "password": password,
-        });
-
         let user = http_client
             .post(format!("{}/users", info.oprish_url))
-            .json(&user)
+            .json(&UserCreate {
+                username: username.clone(),
+                email,
+                password: password.clone(),
+            })
             .send()
             .await
             .expect("Can not connect to Oprish")
@@ -145,16 +142,14 @@ async fn create_session(
     password: String,
     config_path: PathBuf,
 ) -> Result<(String, String), anyhow::Error> {
-    let session = json!({
-        "identifier": username,
-        "password": password,
-        "platform": PLATFORM_NAME,
-        "client": CLIENT_NAME
-    });
-
     let token = match http_client
         .post(format!("{}/sessions", info.oprish_url))
-        .json(&session)
+        .json(&SessionCreate {
+            identifier: username.clone(),
+            password,
+            platform: PLATFORM_NAME.to_string(),
+            client: CLIENT_NAME.to_string(),
+        })
         .send()
         .await
         .expect("Can not connect to Oprish")
