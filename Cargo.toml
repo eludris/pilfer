@@ -1,6 +1,6 @@
 [package]
 name = "pilfer"
-version = "0.3.3"
+version = "0.4.0-alpha1"
 edition = "2021"
 license = "MIT"
 description = "A simple TUI frontend for Eludris"
@@ -22,8 +22,11 @@ crossterm = "0.25.0"
 directories = "5.0.1"
 discord-rich-presence = "0.2.3"
 futures = "0.3.23"
+lazy_static = "1.4.0"
 notify-rust = "4.5.10"
 rand = "0.8.5"
+re = "0.1.0"
+regex = "1.8.4"
 reqwest = { version = "0.11.11", features = ["json"] }
 rpassword = "7.2.0"
 serde = { version = "1.0.144", features = ["derive"] }

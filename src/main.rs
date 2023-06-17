@@ -5,6 +5,7 @@ mod models;
 mod ui;
 mod user;
 mod utils;
+mod version;
 
 use anyhow::anyhow;
 use crossterm::{
@@ -39,6 +40,7 @@ use tui::{
     Terminal,
 };
 use ui::ui;
+use version::check_version;
 
 pub const REST_URL: &str = "https://eludris.tooty.xyz/";
 pub const PILFER_APP_ID: &str = "1028728489165193247";
@@ -80,6 +82,12 @@ async fn main() -> Result<(), anyhow::Error> {
         .json()
         .await
         .expect("Server returned a malformed info response");
+
+    // pub fn check_version(info: &InstanceInfo) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Err(e) = check_version(&info) {
+        println!("Error: {}", e);
+        return Ok(());
+    }
 
     let (token, name) = user::get_token(&info, &http_client).await?;
 

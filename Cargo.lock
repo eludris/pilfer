@@ -1158,15 +1158,18 @@ checksum = "478c572c3d73181ff3c2539045f6eb99e5491218eae919370993b890cdbdd98e"
 
 [[package]]
 name = "pilfer"
-version = "0.3.3"
+version = "0.4.0-alpha1"
 dependencies = [
  "anyhow",
  "crossterm",
  "directories",
  "discord-rich-presence",
  "futures",
+ "lazy_static",
  "notify-rust",
  "rand",
+ "re",
+ "regex",
  "reqwest",
  "rpassword",
  "serde",
@@ -1287,6 +1290,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "re"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "edeb9cde48bd6adaf709744838df5d850562a690dfdf77b9a7aafe9738f98d5f"
+
+[[package]]
 name = "redox_syscall"
 version = "0.2.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1317,9 +1326,9 @@ dependencies = [
 
 [[package]]
 name = "regex"
-version = "1.8.2"
+version = "1.8.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d1a59b5d8e97dee33696bf13c5ba8ab85341c002922fba050069326b9c498974"
+checksum = "d0ab3ca65655bb1e41f2a8c8cd662eb4fb035e67c3f78da1d61dffe89d07300f"
 dependencies = [
  "aho-corasick",
  "memchr",
