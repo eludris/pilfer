@@ -114,7 +114,7 @@ async fn signup(
             Response::Success(_) => {
                 println!("Account created successfully!");
                 if info.email_address.is_some() {
-                    println!("Please check your email to verify your account.");
+                    println!("Please check your email to verify your account, use `pilfer --verify <code> to verify.");
                 }
                 println!("You can now login with your username and password.");
                 prompt!("Press enter to continue > ");
