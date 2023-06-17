@@ -1168,7 +1168,6 @@ dependencies = [
  "lazy_static",
  "notify-rust",
  "rand",
- "re",
  "regex",
  "reqwest",
  "rpassword",
@@ -1288,12 +1287,6 @@ checksum = "ec0be4795e2f6a28069bec0b5ff3e2ac9bafc99e6a9a7dc3547996c5c816922c"
 dependencies = [
  "getrandom",
 ]
-
-[[package]]
-name = "re"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "edeb9cde48bd6adaf709744838df5d850562a690dfdf77b9a7aafe9738f98d5f"
 
 [[package]]
 name = "redox_syscall"
