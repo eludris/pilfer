@@ -153,7 +153,7 @@ async fn main() -> Result<(), anyhow::Error> {
     let messages = Arc::new(Mutex::new(vec![]));
     let users = Arc::new(AsyncMutex::new(HashMap::new()));
 
-    let focused = Arc::new(AtomicBool::new(true));
+    let focused: Arc<AtomicBool> = Arc::new(AtomicBool::new(true));
     #[cfg(target_os = "linux")]
     let notification = Arc::new(Mutex::new(None));
 
@@ -165,6 +165,7 @@ async fn main() -> Result<(), anyhow::Error> {
         http_client: Arc::clone(&http_client),
         rest_url,
         focused: Arc::clone(&focused),
+        users_list_enabled: true,
         #[cfg(target_os = "linux")]
         notification: Arc::clone(&notification),
     };
@@ -240,6 +241,7 @@ fn run_app<B: Backend>(
                                 'c' => return Ok(false),
                                 'l' => app.messages.lock().unwrap().clear(),
                                 ' ' => app.input.push('\n'),
+                                'u' => app.users_list_enabled = !app.users_list_enabled,
                                 _ => {}
                             }
                         } else {
@@ -255,7 +257,7 @@ fn run_app<B: Backend>(
             }
         };
 
-        return Ok(true);
+        Ok(true)
     };
 
     loop {

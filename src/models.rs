@@ -55,6 +55,8 @@ pub struct AppContext {
     pub rest_url: String,
     /// Whether the user is currently focused.
     pub focused: Arc<AtomicBool>,
+    /// Whether the online users list is enabled.
+    pub users_list_enabled: bool,
     /// The notification
     #[cfg(target_os = "linux")]
     pub notification: Arc<Mutex<Option<NotificationHandle>>>,

@@ -55,10 +55,6 @@ pub fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
             .as_ref(),
         )
         .split(f.size());
-    let main = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Min(1), Constraint::Length(20)])
-        .split(chunks[0]);
 
     let messages: Vec<ListItem> = app
         .messages
@@ -103,22 +99,30 @@ pub fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .rev()
         .collect();
 
-    let users: Vec<ListItem> = app
-        .users
-        .blocking_lock()
-        .values()
-        .map(|u| ListItem::new(format!("{}", u)))
-        .collect();
-
     let message_list = List::new(messages)
         .block(Block::default().borders(Borders::ALL).title("Messages"))
         .start_corner(Corner::BottomLeft);
-    f.render_widget(message_list, main[0]);
 
-    let user_list = List::new(users)
-        .block(Block::default().borders(Borders::ALL).title("Users"))
-        .start_corner(Corner::BottomRight);
-    f.render_widget(user_list, main[1]);
+    if app.users_list_enabled {
+        let users: Vec<ListItem> = app
+            .users
+            .blocking_lock()
+            .values()
+            .map(|u| ListItem::new(format!("{}", u)))
+            .collect();
+        let user_list = List::new(users)
+            .block(Block::default().borders(Borders::ALL).title("Users"))
+            .start_corner(Corner::BottomRight);
+
+        let main = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Min(1), Constraint::Length(20)])
+            .split(chunks[0]);
+        f.render_widget(message_list, main[0]);
+        f.render_widget(user_list, main[1]);
+    } else {
+        f.render_widget(message_list, chunks[0]);
+    }
 
     let text = input_text.join("\n");
     let input =
