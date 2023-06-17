@@ -157,7 +157,6 @@ async fn main() -> Result<(), anyhow::Error> {
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
 
-    #[cfg(target_os = "linux")]
     let app = Arc::new(AppContext {
         input: Mutex::new(String::new()),
         name,
