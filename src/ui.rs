@@ -10,6 +10,8 @@ use unicode_width::UnicodeWidthStr;
 pub fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
     let input_text: Vec<String> = app
         .input
+        .lock()
+        .unwrap()
         .split('\n') // handles empty line at the end
         .flat_map(|l| {
             if l.is_empty() {
@@ -103,7 +105,10 @@ pub fn ui<B: Backend>(f: &mut Frame<B>, app: &AppContext) {
         .block(Block::default().borders(Borders::ALL).title("Messages"))
         .start_corner(Corner::BottomLeft);
 
-    if app.users_list_enabled {
+    if app
+        .users_list_enabled
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
         let users: Vec<ListItem> = app
             .users
             .blocking_lock()

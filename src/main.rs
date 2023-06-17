@@ -72,7 +72,7 @@ async fn main() -> Result<(), anyhow::Error> {
     }
 
     let rest_url = env::var("INSTANCE_URL").unwrap_or_else(|_| REST_URL.to_string());
-    let http_client = Arc::new(Client::new());
+    let http_client = Client::new();
     let info: InstanceInfo = http_client
         .get(&rest_url)
         .send()
@@ -157,38 +157,22 @@ async fn main() -> Result<(), anyhow::Error> {
     let backend = CrosstermBackend::new(stdout);
     let terminal = Terminal::new(backend)?;
 
-    let messages = Arc::new(Mutex::new(vec![]));
-    let users = Arc::new(AsyncMutex::new(HashMap::new()));
-
-    let focused = Arc::new(AtomicBool::new(true));
     #[cfg(target_os = "linux")]
-    let notification = Arc::new(Mutex::new(None));
-
-    let app = AppContext {
-        input: String::new(),
-        name: name.clone(),
-        messages: Arc::clone(&messages),
-        users: Arc::clone(&users),
-        http_client: Arc::clone(&http_client),
-        rest_url,
-        focused: Arc::clone(&focused),
-        users_list_enabled: true,
-        #[cfg(target_os = "linux")]
-        notification: Arc::clone(&notification),
-    };
-
-    tokio::spawn(handle_gateway(
-        info.oprish_url,
-        info.pandemonium_url,
-        Arc::clone(&http_client),
-        messages,
-        users,
-        focused,
-        #[cfg(target_os = "linux")]
-        notification,
+    let app = Arc::new(AppContext {
+        input: Mutex::new(String::new()),
         name,
-        token.clone(),
-    ));
+        messages: Mutex::new(vec![]),
+        users: AsyncMutex::new(HashMap::new()),
+        http_client,
+        rest_url: info.oprish_url,
+        gateway_url: info.pandemonium_url,
+        focused: AtomicBool::new(true),
+        users_list_enabled: AtomicBool::new(true),
+        #[cfg(target_os = "linux")]
+        notification: Mutex::new(None),
+    });
+
+    tokio::spawn(handle_gateway(Arc::clone(&app), token.clone()));
 
     let (mut terminal, res) = spawn_blocking(move || run_app(terminal, app, token))
         .await
@@ -211,7 +195,7 @@ async fn main() -> Result<(), anyhow::Error> {
 
 fn run_app<B: Backend>(
     mut terminal: Terminal<B>,
-    mut app: AppContext,
+    app: Arc<AppContext>,
     token: String,
 ) -> (Terminal<B>, Result<(), Box<dyn Error + Send + Sync>>) {
     let mut logic = || -> Result<bool, Box<dyn Error + Send + Sync>> {
@@ -232,14 +216,13 @@ fn run_app<B: Backend>(
                 Event::Key(key) => match key.code {
                     KeyCode::Enter => {
                         // Send a message
-                        if !app.input.is_empty() {
+                        if !app.input.lock().unwrap().is_empty() {
                             let request = app
                                 .http_client
                                 .post(format!("{}/messages/", app.rest_url))
                                 .header("Authorization", &token)
-                                .json(&json!({"content": app.input.drain(..).collect::<String>()}));
-                            let messages = Arc::clone(&app.messages);
-                            tokio::spawn(handle_request(request, messages));
+                                .json(&json!({"content": app.input.lock().unwrap().drain(..).collect::<String>()}));
+                            tokio::spawn(handle_request(request, Arc::clone(&app)));
                         }
                     }
                     KeyCode::Char(c) => {
@@ -248,16 +231,18 @@ fn run_app<B: Backend>(
                             match c {
                                 'c' => return Ok(false),
                                 'l' => app.messages.lock().unwrap().clear(),
-                                ' ' => app.input.push('\n'),
-                                'u' => app.users_list_enabled = !app.users_list_enabled,
+                                ' ' => app.input.lock().unwrap().push('\n'),
+                                'u' => {
+                                    app.users_list_enabled.fetch_xor(false, Ordering::SeqCst);
+                                }
                                 _ => {}
-                            }
+                            };
                         } else {
-                            app.input.push(c);
+                            app.input.lock().unwrap().push(c);
                         }
                     }
                     KeyCode::Backspace => {
-                        app.input.pop();
+                        app.input.lock().unwrap().pop();
                     }
                     _ => {}
                 },
@@ -279,10 +264,7 @@ fn run_app<B: Backend>(
     (terminal, Ok(()))
 }
 
-async fn handle_request(
-    request: RequestBuilder,
-    messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
-) {
+async fn handle_request(request: RequestBuilder, app: Arc<AppContext>) {
     let res = request.send().await;
 
     match res {
@@ -290,7 +272,7 @@ async fn handle_request(
             Ok(resp) => match resp {
                 Response::Error(resp) => match resp {
                     ErrorResponse::RateLimited { retry_after, .. } => {
-                        messages.lock().unwrap().push((
+                        app.messages.lock().unwrap().push((
                             PilferMessage::System(SystemMessage {
                                 content: format!(
                                     "System: You've been ratelimited, retry in {}s",
@@ -300,7 +282,7 @@ async fn handle_request(
                             Style::default().fg(Color::Red),
                         ))
                     }
-                    _ => messages.lock().unwrap().push((
+                    _ => app.messages.lock().unwrap().push((
                         PilferMessage::System(SystemMessage {
                             content: format!("System: Couldn't send message: {:?}", resp),
                         }),
@@ -309,7 +291,7 @@ async fn handle_request(
                 },
                 Response::Success(_) => {}
             },
-            Err(err) => messages.lock().unwrap().push((
+            Err(err) => app.messages.lock().unwrap().push((
                 PilferMessage::System(SystemMessage {
                     content: format!(
                         "System: Couldn't send message: got invalid response: {:?}",
@@ -319,7 +301,7 @@ async fn handle_request(
                 Style::default().fg(Color::Red),
             )),
         },
-        Err(err) => messages.lock().unwrap().push((
+        Err(err) => app.messages.lock().unwrap().push((
             PilferMessage::System(SystemMessage {
                 content: format!("System: Couldn't send message: {:?}", err),
             }),
