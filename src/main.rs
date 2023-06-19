@@ -20,7 +20,6 @@ use discord_rich_presence::{
 use gateway::handle_gateway;
 use models::{AppContext, PilferMessage, Response, SystemMessage};
 use reqwest::{Client, RequestBuilder};
-use serde_json::json;
 use std::{
     collections::HashMap,
     env,

@@ -19,7 +19,7 @@ Please update Pilfer to the latest version.";
 
 pub fn check_version(info: &InstanceInfo) -> Result<(), String> {
     lazy_static! {
-        static ref VERSION_REGEX: Regex= Regex::new(r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$").unwrap();
+        static ref VERSION_REGEX: Regex = Regex::new(r"^(?P<major>0|[1-9]\d*)\.(?P<minor>0|[1-9]\d*)\.(?P<patch>0|[1-9]\d*)(?:-(?P<prerelease>(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\.(?:0|[1-9]\d*|\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\+(?P<buildmetadata>[0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$").unwrap();
     }
 
     let current_version = VERSION_REGEX
@@ -92,11 +92,11 @@ pub fn check_version(info: &InstanceInfo) -> Result<(), String> {
 
     match instance.cmp(&current) {
         Ordering::Equal => {}
-        Ordering::Greater => {
+        Ordering::Less => {
             eprintln!("{}", ERROR);
             return Err("Aborted.".to_string());
         }
-        Ordering::Less => {
+        Ordering::Greater => {
             eprintln!("{}", WARNING);
             std::thread::sleep(Duration::from_secs(3));
         }
