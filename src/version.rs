@@ -4,14 +4,6 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use todel::models::InstanceInfo;
 
-const ERROR: &str =
-    "This version of Pilfer is more recent than the instance you are connecting to.
-
-Make sure you are using the right instance. An example of running Pilfer with a different instance is:
-
-    $ INSTANCE_URL=https://api.eludris.gay/next pilfer
-
-If you are using the correct instance, downgrade pilfer.";
 const WARNING: &str =
     "Warning: This version of Pilfer is older than the instance you are connecting to.
 
@@ -90,16 +82,9 @@ pub fn check_version(info: &InstanceInfo) -> Result<(), String> {
         current_prerelease,
     );
 
-    match instance.cmp(&current) {
-        Ordering::Equal => {}
-        Ordering::Less => {
-            eprintln!("{}", ERROR);
-            return Err("Aborted.".to_string());
-        }
-        Ordering::Greater => {
-            eprintln!("{}", WARNING);
-            std::thread::sleep(Duration::from_secs(3));
-        }
+    if instance.cmp(&current) == Ordering::Greater {
+        eprintln!("{}", WARNING);
+        std::thread::sleep(Duration::from_secs(3));
     }
     Ok(())
 }
