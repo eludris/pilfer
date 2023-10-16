@@ -2,7 +2,7 @@ use std::{cmp::Ordering, time::Duration};
 
 use lazy_static::lazy_static;
 use regex::Regex;
-use todel::models::InstanceInfo;
+use todel::InstanceInfo;
 
 const WARNING: &str =
     "Warning: This version of Pilfer is older than the instance you are connecting to.

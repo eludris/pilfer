@@ -30,7 +30,7 @@ reqwest = { version = "0.11.11", features = ["json"] }
 rpassword = "7.2.0"
 serde = { version = "1.0.144", features = ["derive"] }
 serde_json = "1.0.85"
-todel = { git = "https://github.com/eludris/eludris", rev = "3a953b7" }
+todel = { git = "https://github.com/eludris/todel", version = "0.4.0-alpha1" }
 tokio = { version = "1.20.1", features = [
     "macros",
     "rt-multi-thread",

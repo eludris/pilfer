@@ -7,7 +7,7 @@ use std::sync::Mutex;
 use notify_rust::NotificationHandle;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use todel::models::{ErrorResponse, Message, User};
+use todel::{ErrorResponse, Message, User};
 use tokio::sync::Mutex as AsyncMutex;
 use tui::style::Style;
 

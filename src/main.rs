@@ -30,7 +30,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
     vec,
 };
-use todel::models::{ErrorResponse, InstanceInfo, Message, MessageCreate};
+use todel::{ErrorResponse, InstanceInfo, Message, MessageCreate};
 use tokio::{sync::Mutex as AsyncMutex, task::spawn_blocking};
 use tui::{
     backend::{Backend, CrosstermBackend},

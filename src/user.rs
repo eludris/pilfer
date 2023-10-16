@@ -8,7 +8,7 @@ use anyhow::{bail, Context};
 use directories::ProjectDirs;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use todel::models::{ErrorResponse, InstanceInfo, SessionCreate, SessionCreated, User, UserCreate};
+use todel::{ErrorResponse, InstanceInfo, SessionCreate, SessionCreated, User, UserCreate};
 use tokio::fs;
 
 use crate::{models::Response, prompt};

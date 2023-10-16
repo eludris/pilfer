@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use futures::{SinkExt, StreamExt};
 use notify_rust::Notification;
 use rand::{rngs::StdRng, Rng, SeedableRng};
-use todel::models::{ClientPayload, Message, ServerPayload, StatusType, User};
+use todel::{ClientPayload, Message, ServerPayload, StatusType, User};
 use tokio::sync::Mutex as AsyncMutex;
 use tokio::time;
 use tokio_tungstenite::{connect_async, tungstenite::Message as WsMessage};
@@ -162,7 +162,7 @@ pub async fn handle_gateway(app: Arc<AppContext>, token: String) {
                                         app.messages.lock().unwrap().push((
                                             PilferMessage::System(SystemMessage {
                                                 content: format!(
-                                                    "Could not get user {}: {}",
+                                                    "Could not get user {}: {:?}",
                                                     user_id, err
                                                 ),
                                             }),
