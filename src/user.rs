@@ -27,19 +27,17 @@ pub async fn get_token(
     http_client: &Client,
 ) -> Result<(String, String), anyhow::Error> {
     let conf_dir = match env::var("PILFER_CONF") {
-        Ok(dir) => Ok::<PathBuf, anyhow::Error>(PathBuf::try_from(dir).context(
-            "Could not convert the `PILFER_CONF` environment variable into a valid path",
-        )?),
-        Err(env::VarError::NotPresent) => Ok(ProjectDirs::from("", "eludris", "pilfer")
+        Ok(dir) => PathBuf::from(dir),
+        Err(env::VarError::NotPresent) => ProjectDirs::from("", "eludris", "pilfer")
             // According to the `directories` docs the error is raised when a home path isn't found
             // but that wouldn't make much sense for windows so we use `base` here.
             .context("Could not find a valid base directory")?
             .config_dir()
-            .to_path_buf()),
+            .to_path_buf(),
         Err(env::VarError::NotUnicode(_)) => {
             bail!("The value of the `PILFER_CONF` environment variable must be a valid unicode string")
         }
-    }?;
+    };
 
     if !conf_dir.exists() {
         fs::create_dir_all(&conf_dir)

@@ -20,8 +20,8 @@ pub fn check_version(info: &InstanceInfo) -> Result<(), String> {
     let instance_version = VERSION_REGEX
         .captures(&info.version)
         .ok_or("Error: Instance version is not a valid semver.")?;
-    println!("Current version: {}", env!("CARGO_PKG_VERSION"));
-    println!("Instance version: {}", info.version);
+    log::info!("Current version: {}", env!("CARGO_PKG_VERSION"));
+    log::info!("Instance version: {}", info.version);
 
     let current_major = current_version
         .name("major")
