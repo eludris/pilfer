@@ -1,9 +1,12 @@
 #![allow(clippy::uninlined_format_args)]
-
 mod gateway;
 mod models;
 mod ui;
+mod user;
+mod utils;
+mod version;
 
+use anyhow::anyhow;
 use crossterm::{
     cursor::{CursorShape, SetCursorShape},
     event::{self, DisableFocusChange, EnableFocusChange, Event, KeyCode, KeyModifiers},
@@ -15,25 +18,27 @@ use discord_rich_presence::{
     DiscordIpc, DiscordIpcClient,
 };
 use gateway::handle_gateway;
-use models::{AppContext, MessageResponse, PilferMessage, SystemMessage};
+use models::{AppContext, PilferMessage, Response, SystemMessage};
 use reqwest::{Client, RequestBuilder};
-use serde_json::json;
 use std::{
+    collections::HashMap,
     env,
     error::Error,
-    io::{self, Write},
+    io,
     sync::atomic::{AtomicBool, Ordering},
     sync::{Arc, Mutex},
     time::{Duration, SystemTime, UNIX_EPOCH},
     vec,
 };
-use todel::models::{ErrorResponse, InstanceInfo};
+use todel::{ErrorResponse, InstanceInfo, Message, MessageCreate};
+use tokio::{sync::Mutex as AsyncMutex, task::spawn_blocking};
 use tui::{
     backend::{Backend, CrosstermBackend},
     style::{Color, Style},
     Terminal,
 };
 use ui::ui;
+use version::check_version;
 
 pub const REST_URL: &str = "https://eludris.tooty.xyz/";
 pub const PILFER_APP_ID: &str = "1028728489165193247";
@@ -57,34 +62,13 @@ async fn main() -> Result<(), anyhow::Error> {
     }));
     let mut stdout = io::stdout();
 
-    // Get a name that complies with Eludris' 2-32 name character limit
-    let name = match env::args().nth(1) {
-        Some(name) => {
-            if name == "-v" || name == "--version" {
-                println!("Version: {}", VERSION);
-                return Ok(());
-            } else if name.len() < 2 || name.len() > 32 {
-                anyhow::bail!("Invalid name supplied, your name has to be between 2 and 32 characters long, try again!");
-            }
-            name
+    let flag = env::args().nth(1);
+    if let Some(ref flag) = flag {
+        if flag == "-v" || flag == "--version" {
+            println!("Version: {}", VERSION);
+            return Ok(());
         }
-        None => env::var("PILFER_NAME").unwrap_or_else(|_| loop {
-            print!("What's your name? > ");
-            stdout.flush().unwrap();
-
-            let mut name = String::new();
-
-            io::stdin().read_line(&mut name).unwrap();
-
-            let name = name.trim();
-
-            if name.len() <= 32 && name.len() >= 2 {
-                break name.to_string();
-            }
-
-            eprintln!("Your name has to be between 2 and 32 characters long, try again!");
-        }),
-    };
+    }
 
     let rest_url = env::var("INSTANCE_URL").unwrap_or_else(|_| REST_URL.to_string());
     let http_client = Client::new();
@@ -92,10 +76,44 @@ async fn main() -> Result<(), anyhow::Error> {
         .get(&rest_url)
         .send()
         .await
-        .expect("Can not connect to Oprish")
+        .expect("Cannot connect to Oprish")
         .json()
         .await
         .expect("Server returned a malformed info response");
+
+    // pub fn check_version(info: &InstanceInfo) -> Result<(), Box<dyn Error + Send + Sync>> {
+    if let Err(e) = check_version(&info) {
+        println!("Error: {}", e);
+        return Ok(());
+    }
+
+    let (token, name) = user::get_token(&info, &http_client).await?;
+
+    if flag == Some("--verify".to_string()) {
+        match env::args().nth(2) {
+            Some(code) => {
+                let res = http_client
+                    .post(format!("{}/users/verify?code={}", info.oprish_url, code))
+                    .header("Authorization", &token)
+                    .send()
+                    .await
+                    .expect("Can not connect to Oprish");
+                if res.status().is_success() {
+                    println!("Successfully verified");
+                } else {
+                    match res.json::<ErrorResponse>().await? {
+                        ErrorResponse::Validation {
+                            value_name, info, ..
+                        } => return Err(anyhow!("{}: {}", value_name, info)),
+                        _ => return Err(anyhow!("Could not verify: {:?}", info)),
+                    }
+                }
+            }
+            None => {
+                return Err(anyhow!("Usage: pilfer --verify <code>"));
+            }
+        };
+    };
 
     // Discord rich presence stuff
     let mut client = DiscordIpcClient::new(PILFER_APP_ID).unwrap();
@@ -136,35 +154,27 @@ async fn main() -> Result<(), anyhow::Error> {
         SetCursorShape(CursorShape::Line),
     )?;
     let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
+    let terminal = Terminal::new(backend)?;
 
-    let messages = Arc::new(Mutex::new(vec![]));
-
-    let focused = Arc::new(AtomicBool::new(true));
-    #[cfg(target_os = "linux")]
-    let notification = Arc::new(Mutex::new(None));
-
-    let app = AppContext {
-        input: String::new(),
-        name: name.clone(),
-        messages: Arc::clone(&messages),
-        http_client,
-        rest_url,
-        focused: Arc::clone(&focused),
-        #[cfg(target_os = "linux")]
-        notification: Arc::clone(&notification),
-    };
-
-    tokio::spawn(handle_gateway(
-        info.pandemonium_url,
-        messages,
-        focused,
-        #[cfg(target_os = "linux")]
-        notification,
+    let app = Arc::new(AppContext {
+        input: Mutex::new(String::new()),
         name,
-    ));
+        messages: Mutex::new(vec![]),
+        users: AsyncMutex::new(HashMap::new()),
+        http_client,
+        rest_url: info.oprish_url,
+        gateway_url: info.pandemonium_url,
+        focused: AtomicBool::new(true),
+        users_list_enabled: AtomicBool::new(true),
+        #[cfg(target_os = "linux")]
+        notification: Mutex::new(None),
+    });
 
-    let res = run_app(&mut terminal, app);
+    tokio::spawn(handle_gateway(Arc::clone(&app), token.clone()));
+
+    let (mut terminal, res) = spawn_blocking(move || run_app(terminal, app, token))
+        .await
+        .unwrap();
 
     disable_raw_mode()?;
     execute!(
@@ -182,10 +192,11 @@ async fn main() -> Result<(), anyhow::Error> {
 }
 
 fn run_app<B: Backend>(
-    terminal: &mut Terminal<B>,
-    mut app: AppContext,
-) -> Result<(), Box<dyn Error>> {
-    loop {
+    mut terminal: Terminal<B>,
+    app: Arc<AppContext>,
+    token: String,
+) -> (Terminal<B>, Result<(), Box<dyn Error + Send + Sync>>) {
+    let mut logic = || -> Result<bool, Box<dyn Error + Send + Sync>> {
         terminal.draw(|f| ui(f, &app))?;
 
         if event::poll(Duration::from_millis(100))? {
@@ -203,80 +214,100 @@ fn run_app<B: Backend>(
                 Event::Key(key) => match key.code {
                     KeyCode::Enter => {
                         // Send a message
-                        if !app.input.is_empty() {
+                        if !app.input.lock().unwrap().is_empty() {
                             let request = app
                                 .http_client
                                 .post(format!("{}/messages/", app.rest_url))
-                                .json(
-                                    &json!({"author": app.name, "content": app.input.drain(..).collect::<String>()})
-                                );
-                            let messages = Arc::clone(&app.messages);
-                            tokio::spawn(handle_request(request, messages));
+                                .header("Authorization", &token)
+                                .json(&MessageCreate {
+                                    content: app
+                                        .input
+                                        .lock()
+                                        .unwrap()
+                                        .drain(..)
+                                        .collect::<String>(),
+                                    disguise: None,
+                                });
+                            tokio::spawn(handle_request(request, Arc::clone(&app)));
                         }
                     }
                     KeyCode::Char(c) => {
                         // Keybingings go here
                         if key.modifiers.contains(KeyModifiers::CONTROL) {
                             match c {
-                                'c' => break,
+                                'c' => return Ok(false),
                                 'l' => app.messages.lock().unwrap().clear(),
-                                ' ' => app.input.push('\n'),
+                                ' ' => app.input.lock().unwrap().push('\n'),
+                                'u' => {
+                                    app.users_list_enabled.fetch_xor(false, Ordering::SeqCst);
+                                }
                                 _ => {}
-                            }
+                            };
                         } else {
-                            app.input.push(c);
+                            app.input.lock().unwrap().push(c);
                         }
                     }
                     KeyCode::Backspace => {
-                        app.input.pop();
+                        app.input.lock().unwrap().pop();
                     }
                     _ => {}
                 },
                 _ => {}
             }
+        };
+
+        Ok(true)
+    };
+
+    loop {
+        match logic() {
+            Ok(true) => {}
+            Ok(false) => break,
+            Err(err) => return (terminal, Err(err)),
         }
     }
 
-    Ok(())
+    (terminal, Ok(()))
 }
 
-async fn handle_request(
-    request: RequestBuilder,
-    messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
-) {
+async fn handle_request(request: RequestBuilder, app: Arc<AppContext>) {
     let res = request.send().await;
+
     match res {
-        Ok(res) => match res.json::<MessageResponse>().await {
+        Ok(res) => match res.json::<Response<Message>>().await {
             Ok(resp) => match resp {
-                MessageResponse::Error(resp) => match resp {
-                    ErrorResponse::RateLimited { try_after, .. } => {
-                        messages.lock().unwrap().push((
+                Response::Error(resp) => match resp {
+                    ErrorResponse::RateLimited { retry_after, .. } => {
+                        app.messages.lock().unwrap().push((
                             PilferMessage::System(SystemMessage {
                                 content: format!(
-                                    "System: You've been ratelimited, try in {}s",
-                                    try_after / 1000
+                                    "System: You've been ratelimited, retry in {}s",
+                                    retry_after / 1000
                                 ),
                             }),
                             Style::default().fg(Color::Red),
                         ))
                     }
-                    _ => messages.lock().unwrap().push((
+                    _ => app.messages.lock().unwrap().push((
                         PilferMessage::System(SystemMessage {
                             content: format!("System: Couldn't send message: {:?}", resp),
                         }),
                         Style::default().fg(Color::Red),
                     )),
                 },
-                MessageResponse::Success(_) => {}
+                Response::Success(_) => {}
             },
-            Err(_) => messages.lock().unwrap().push((
+            Err(err) => app.messages.lock().unwrap().push((
                 PilferMessage::System(SystemMessage {
-                    content: "System: Couldn't send message: got invalid response".to_string(),
+                    content: format!(
+                        "System: Couldn't send message: got invalid response: {:?}",
+                        err
+                    ),
                 }),
                 Style::default().fg(Color::Red),
             )),
         },
-        Err(err) => messages.lock().unwrap().push((
+        Err(err) => app.messages.lock().unwrap().push((
             PilferMessage::System(SystemMessage {
                 content: format!("System: Couldn't send message: {:?}", err),
             }),

@@ -27,5 +27,11 @@ of this repository.
 Pilfer defaults to using @ooliver1's Eludris instance located at <https://eludris.tooty.xyz/>,
 to change that overwrite the `INSTANCE_URL` environment variable.
 
-You can also define a default name using the `PILFER_NAME` environment variable,
-it has to be > 1 characters < 33 characters.
+### Keybinds
+
+|     Keybind      |          Action          |
+| ---------------- | ------------------------ |
+| Ctrl + C         | Quit                     |
+| Ctrl + L         | Clear                    |
+| Ctrl + \[space\] | Add new line             |
+| Ctrl + U         | Toggle online users list |

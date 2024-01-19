@@ -1,18 +1,20 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::sync::atomic::AtomicBool;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 #[cfg(target_os = "linux")]
 use notify_rust::NotificationHandle;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use todel::models::{ErrorResponse, Message};
+use todel::{ErrorResponse, Message, User};
+use tokio::sync::Mutex as AsyncMutex;
 use tui::style::Style;
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
-pub enum MessageResponse {
-    Success(Message),
+pub enum Response<T> {
+    Success(T),
     Error(ErrorResponse),
 }
 
@@ -25,14 +27,14 @@ pub struct SystemMessage {
 
 #[derive(Debug)]
 pub enum PilferMessage {
-    Eludris(Message),
+    Eludris(Box<Message>),
     System(SystemMessage),
 }
 
 impl Display for PilferMessage {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            PilferMessage::Eludris(msg) => write!(f, "[{}]: {}", msg.author, msg.content),
+            PilferMessage::Eludris(msg) => write!(f, "[{}]: {}", msg.author, msg.message.content),
             PilferMessage::System(msg) => write!(f, "{}", msg.content),
         }
     }
@@ -40,18 +42,24 @@ impl Display for PilferMessage {
 
 pub struct AppContext {
     /// Current input
-    pub input: String,
+    pub input: Mutex<String>,
     /// User name
     pub name: String,
     /// Received messages
-    pub messages: Arc<Mutex<Vec<(PilferMessage, Style)>>>,
+    pub messages: Mutex<Vec<(PilferMessage, Style)>>,
+    /// Online users
+    pub users: AsyncMutex<HashMap<u64, User>>,
     /// Reqwest HttpClient
     pub http_client: Client,
     /// Oprish URL
     pub rest_url: String,
+    /// Pandemonium URL
+    pub gateway_url: String,
     /// Whether the user is currently focused.
-    pub focused: Arc<AtomicBool>,
+    pub focused: AtomicBool,
+    /// Whether the online users list is enabled.
+    pub users_list_enabled: AtomicBool,
     /// The notification
     #[cfg(target_os = "linux")]
-    pub notification: Arc<Mutex<Option<NotificationHandle>>>,
+    pub notification: Mutex<Option<NotificationHandle>>,
 }
